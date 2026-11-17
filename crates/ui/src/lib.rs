@@ -16,6 +16,7 @@ use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRende
 
 pub struct TerminalView {
     area: gtk::DrawingArea,
+    engine: Rc<RefCell<Box<dyn TerminalEngine>>>,
     theme: Rc<RefCell<Theme>>,
     font: Rc<FontSpec>,
     selection: Rc<Cell<Option<Selection>>>,
@@ -220,6 +221,7 @@ impl TerminalView {
 
         Self {
             area,
+            engine,
             theme,
             font,
             selection,
@@ -247,6 +249,14 @@ impl TerminalView {
 
     pub fn exited(&self) -> bool {
         self.exited.get()
+    }
+
+    pub fn title(&self) -> Option<String> {
+        self.engine.borrow().title().map(str::to_string)
+    }
+
+    pub fn cwd(&self) -> Option<std::path::PathBuf> {
+        self.engine.borrow().cwd().cloned()
     }
 
     pub fn clear_selection(&self) {
