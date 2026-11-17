@@ -3,6 +3,12 @@ use libadwaita::prelude::*;
 use libadwaita::{Application, ApplicationWindow, HeaderBar, ToolbarView};
 
 fn main() -> glib::ExitCode {
+    // ADR-003: Cairo es el renderer de v1. GSK con GL agrega ~22 MB PSS a una
+    // ventana vacía y rompe el presupuesto de RAM. Se respeta un override explícito.
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        std::env::set_var("GSK_RENDERER", "cairo");
+    }
+
     if std::env::args().any(|a| a == "--version" || a == "-V") {
         println!("termust {}", env!("CARGO_PKG_VERSION"));
         return glib::ExitCode::SUCCESS;
