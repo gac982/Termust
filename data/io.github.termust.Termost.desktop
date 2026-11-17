@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Termust
+Comment=Terminal para GNOME
+Exec=termust
+Icon=io.github.termust.Termost
+Terminal=false
+Type=Application
+Categories=System;TerminalEmulator;Utility;
+Keywords=terminal;shell;console;rust;
+StartupNotify=true

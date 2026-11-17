@@ -1,0 +1,45 @@
+app-id: io.github.termust.Termost
+runtime: org.gnome.Platform
+runtime-version: "51"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: termust
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --share=network
+  - --filesystem=host
+  - --filesystem=/tmp
+  - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.freedesktop.secrets
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    APP_ID: io.github.termust.Termost
+    CARGO_HOME: /run/build/termust/cargo
+    CARGO_NET_OFFLINE: "true"
+
+modules:
+  - name: termust
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml
+      - cargo --offline build --release --locked
+      - install -Dm755 target/release/termust /app/bin/termust
+      - install -Dm644 data/${APP_ID}.desktop /app/share/applications/${APP_ID}.desktop
+      - install -Dm644 data/${APP_ID}.metainfo.xml /app/share/metainfo/${APP_ID}.metainfo.xml
+      - install -Dm644 data/${APP_ID}.gschema.xml /app/share/glib-2.0/schemas/${APP_ID}.gschema.xml
+      - install -Dm644 data/icons/hicolor/512x512/apps/${APP_ID}.png /app/share/icons/hicolor/512x512/apps/${APP_ID}.png
+      - install -Dm644 data/icons/hicolor/256x256/apps/${APP_ID}.png /app/share/icons/hicolor/256x256/apps/${APP_ID}.png
+      - install -Dm644 data/icons/hicolor/128x128/apps/${APP_ID}.png /app/share/icons/hicolor/128x128/apps/${APP_ID}.png
+      - install -Dm644 data/icons/hicolor/64x64/apps/${APP_ID}.png /app/share/icons/hicolor/64x64/apps/${APP_ID}.png
+      - glib-compile-schemas /app/share/glib-2.0/schemas
+    sources:
+      - type: dir
+        path: build-src
+      - cargo-sources.json

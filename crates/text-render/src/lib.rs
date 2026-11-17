@@ -1,0 +1,1 @@
+//! Motor de texto compartido.

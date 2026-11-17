@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="io.github.termust.Termost" path="/io/github/termust/Termost/">
+    <key name="restore-session" type="b">
+      <default>true</default>
+      <summary>Restaurar la sesión al iniciar</summary>
+      <description>Si está activo, Termust restaura pestañas, paneles y directorios de la última sesión.</description>
+    </key>
+  </schema>
+</schemalist>

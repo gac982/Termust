@@ -7,3 +7,4 @@
 /.superpowers/
 *.log
 .DS_Store
+/flatpak/build-src/

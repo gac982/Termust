@@ -1,0 +1,1 @@
+//! Adaptador de renderer Cairo.
