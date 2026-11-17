@@ -84,7 +84,22 @@ fn build_ui(app: &Application) {
         }
     }
 
-    toolbar.add_top_bar(manager.borrow().tab_bar());
+    header.set_title_widget(Some(manager.borrow().tab_bar()));
+    let new_tab = gtk::Button::builder()
+        .icon_name("tab-new-symbolic")
+        .tooltip_text("Nueva pestaña")
+        .build();
+    new_tab.add_css_class("flat");
+    {
+        let manager = manager.clone();
+        let home = home.clone();
+        new_tab.connect_clicked(move |_| {
+            if let Err(e) = manager.borrow_mut().open_tab(home.clone()) {
+                eprintln!("termust: no se pudo abrir pestaña: {e}");
+            }
+        });
+    }
+    header.pack_start(&new_tab);
     toolbar.set_content(Some(manager.borrow().tab_view()));
     manager.borrow().focus_active();
 
@@ -135,6 +150,18 @@ fn build_ui(app: &Application) {
             glib::Propagation::Stop
         });
         window.add_controller(key);
+    }
+
+    if std::env::var_os("TERMUST_CLOSE_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(800), move || {
+            for _ in 0..3 {
+                manager.borrow_mut().close_active();
+            }
+            let app = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(500), move || app.quit());
+        });
     }
 
     {

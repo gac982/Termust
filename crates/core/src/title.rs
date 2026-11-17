@@ -23,7 +23,7 @@ pub fn display_title(tab: &Tab, foreground: Option<&str>) -> TitleSpec {
         .or_else(|| foreground.map(str::to_string))
         .unwrap_or_else(|| basename(&tab.cwd));
 
-    let mut full = sanitize(&candidate);
+    let mut full = sanitize(shorten_shell_title(&candidate));
     if full.is_empty() {
         full = basename(&tab.cwd);
     }
@@ -45,6 +45,17 @@ pub fn display_title(tab: &Tab, foreground: Option<&str>) -> TitleSpec {
         full,
         tooltip,
     }
+}
+
+/// p10k/oh-my-zsh suelen poner `user@host:~/ruta` como título; la ruta sola
+/// es más útil y ocupa menos en la pestaña.
+fn shorten_shell_title(input: &str) -> &str {
+    if let Some((head, tail)) = input.split_once(':') {
+        if head.contains('@') && !tail.is_empty() {
+            return tail.trim_start();
+        }
+    }
+    input
 }
 
 pub fn sanitize(input: &str) -> String {
@@ -149,6 +160,13 @@ mod tests {
         assert!(out.contains('…'));
         assert!(out.starts_with("aaaaaaaaa"));
         assert!(out.ends_with("aaaaaaaaa"));
+    }
+
+    #[test]
+    fn shell_prefix_is_shortened() {
+        assert_eq!(shorten_shell_title("gustavo@host:~/repo"), "~/repo");
+        assert_eq!(shorten_shell_title("cargo test"), "cargo test");
+        assert_eq!(shorten_shell_title("a@b:"), "a@b:");
     }
 
     #[test]

@@ -48,6 +48,7 @@ impl TabManager {
         let tab_bar = TabBar::new();
         tab_bar.set_view(Some(&tab_view));
         tab_bar.set_autohide(false);
+        tab_bar.set_expand_tabs(false);
         let mut manager = Self {
             tab_view,
             tab_bar,
@@ -245,24 +246,21 @@ impl TabManager {
         let tab_view = manager.borrow().tab_view.clone();
 
         {
-            tab_view.connect_close_page(|view, page| {
-                view.close_page_finish(page, true);
-                glib::Propagation::Proceed
-            });
-        }
-
-        {
             let manager = manager.clone();
             tab_view.connect_page_detached(move |_, page, _| {
-                let mut mgr = manager.borrow_mut();
-                mgr.entries.retain(|e| e.page != *page);
-                if mgr.entries.is_empty() {
-                    let home = mgr.home.clone();
-                    let manager = manager.clone();
-                    glib::idle_add_local_once(move || {
-                        let _ = manager.borrow_mut().open_tab(home);
-                    });
-                }
+                // El cierre puede ocurrir mientras el manager está prestado
+                // (p. ej. Ctrl+Shift+W). Diferimos la limpieza al idle para no
+                // re-entrar en el RefCell.
+                let manager = manager.clone();
+                let page = page.clone();
+                glib::idle_add_local_once(move || {
+                    let mut mgr = manager.borrow_mut();
+                    mgr.entries.retain(|e| e.page != page);
+                    if mgr.entries.is_empty() {
+                        let home = mgr.home.clone();
+                        let _ = mgr.open_tab(home);
+                    }
+                });
             });
         }
 
