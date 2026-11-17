@@ -144,4 +144,9 @@ pub trait TerminalEngine {
     fn title(&self) -> Option<&str>;
     fn cwd(&self) -> Option<&PathBuf>;
     fn prompt(&self) -> PromptStatus;
+
+    /// Respuestas que el motor debe escribir de vuelta al PTY (DSR, DA, etc.).
+    fn take_responses(&mut self) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
 }

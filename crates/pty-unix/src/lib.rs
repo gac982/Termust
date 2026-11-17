@@ -10,6 +10,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, sync_channel, Receiver, Sender, SyncSender};
+use std::sync::Arc;
 use termust_core::pty::{PtyError, PtyEvent, PtyHandle, PtySession, PtySpawner, SpawnSpec};
 use termust_core::terminal::Size;
 
@@ -35,7 +36,6 @@ enum HubCmd {
     Kill {
         id: u64,
     },
-    Shutdown,
 }
 
 struct Entry {
@@ -46,15 +46,16 @@ struct Entry {
 
 pub struct UnixPtySpawner {
     tx: Sender<HubCmd>,
-    waker: Waker,
+    waker: Arc<Waker>,
     next: AtomicU64,
 }
 
 impl UnixPtySpawner {
     pub fn new() -> Result<Self, PtyError> {
         let poll = Poll::new().map_err(|e| PtyError::Io(e.to_string()))?;
-        let waker =
-            Waker::new(poll.registry(), WAKE_TOKEN).map_err(|e| PtyError::Io(e.to_string()))?;
+        let waker = Arc::new(
+            Waker::new(poll.registry(), WAKE_TOKEN).map_err(|e| PtyError::Io(e.to_string()))?,
+        );
         let (tx, rx) = channel();
         std::thread::Builder::new()
             .name("termust-pty-io".into())
@@ -65,13 +66,6 @@ impl UnixPtySpawner {
             waker,
             next: AtomicU64::new(1),
         })
-    }
-}
-
-impl Drop for UnixPtySpawner {
-    fn drop(&mut self) {
-        let _ = self.tx.send(HubCmd::Shutdown);
-        let _ = self.waker.wake();
     }
 }
 
@@ -164,6 +158,7 @@ impl PtySpawner for UnixPtySpawner {
                 id,
                 tx: self.tx.clone(),
                 pid,
+                waker: Arc::clone(&self.waker),
             }),
             events: rx,
         })
@@ -174,28 +169,38 @@ struct UnixPtySession {
     id: u64,
     tx: Sender<HubCmd>,
     pid: u32,
+    waker: Arc<Waker>,
 }
 
 impl PtySession for UnixPtySession {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<()> {
-        self.tx
+        let sent = self
+            .tx
             .send(HubCmd::Write {
                 id: self.id,
                 bytes: bytes.to_vec(),
             })
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"));
+        let _ = self.waker.wake();
+        sent
     }
 
     fn resize(&mut self, size: Size) -> std::io::Result<()> {
-        self.tx
+        let sent = self
+            .tx
             .send(HubCmd::Resize { id: self.id, size })
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"));
+        let _ = self.waker.wake();
+        sent
     }
 
     fn kill(&mut self) -> std::io::Result<()> {
-        self.tx
+        let sent = self
+            .tx
             .send(HubCmd::Kill { id: self.id })
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pty hub stopped"));
+        let _ = self.waker.wake();
+        sent
     }
 
     fn pid(&self) -> u32 {
@@ -206,6 +211,7 @@ impl PtySession for UnixPtySession {
 impl Drop for UnixPtySession {
     fn drop(&mut self) {
         let _ = self.tx.send(HubCmd::Kill { id: self.id });
+        let _ = self.waker.wake();
     }
 }
 
@@ -221,13 +227,14 @@ fn hub_loop(mut poll: Poll, rx: Receiver<HubCmd>) {
             }
         }
 
+        while let Ok(cmd) = rx.try_recv() {
+            if !handle_cmd(&mut poll, &mut entries, cmd) {
+                return;
+            }
+        }
+
         for ev in &events {
             if ev.token() == WAKE_TOKEN {
-                while let Ok(cmd) = rx.try_recv() {
-                    if !handle_cmd(&mut poll, &mut entries, cmd) {
-                        return;
-                    }
-                }
                 continue;
             }
             let token = ev.token().0;
@@ -295,13 +302,6 @@ fn handle_cmd(poll: &mut Poll, entries: &mut HashMap<usize, Entry>, cmd: HubCmd)
         }
         HubCmd::Kill { id } => {
             close_entry(poll, entries, id as usize, true, None);
-        }
-        HubCmd::Shutdown => {
-            let ids: Vec<usize> = entries.keys().copied().collect();
-            for id in ids {
-                close_entry(poll, entries, id, true, None);
-            }
-            return false;
         }
     }
     true

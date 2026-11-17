@@ -4,7 +4,7 @@ mod osc;
 
 pub use osc::{OscEvent, OscScanner, PromptMark};
 
-use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term, TermMode};
@@ -12,6 +12,7 @@ use alacritty_terminal::vte::ansi::{
     Color as AnsiColor, CursorShape, NamedColor, Processor, StdSyncHandler,
 };
 use std::path::PathBuf;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use termust_core::terminal::{
     Attrs, Cell, Color, Cursor, Modes, PromptStatus, Rgb, Size, Snapshot, TerminalEngine,
 };
@@ -35,11 +36,22 @@ impl Dimensions for Dim {
     }
 }
 
+struct Listener {
+    tx: Sender<Event>,
+}
+
+impl EventListener for Listener {
+    fn send_event(&self, event: Event) {
+        let _ = self.tx.send(event);
+    }
+}
+
 pub struct AlacrittyEngine {
-    term: Term<VoidListener>,
+    term: Term<Listener>,
     parser: Proc,
     osc: OscScanner,
     size: Size,
+    responses: Receiver<Event>,
 }
 
 impl AlacrittyEngine {
@@ -48,19 +60,21 @@ impl AlacrittyEngine {
             scrolling_history: history,
             ..Default::default()
         };
+        let (tx, responses) = channel();
         let term = Term::new(
             cfg,
             &Dim {
                 cols: size.cols,
                 rows: size.rows,
             },
-            VoidListener,
+            Listener { tx },
         );
         Self {
             term,
             parser: Proc::new(),
             osc: OscScanner::new(),
             size,
+            responses,
         }
     }
 
@@ -148,6 +162,16 @@ impl TerminalEngine for AlacrittyEngine {
 
     fn prompt(&self) -> PromptStatus {
         self.osc.prompt()
+    }
+
+    fn take_responses(&mut self) -> Vec<Vec<u8>> {
+        let mut out = Vec::new();
+        while let Ok(event) = self.responses.try_recv() {
+            if let Event::PtyWrite(text) = event {
+                out.push(text.into_bytes());
+            }
+        }
+        out
     }
 }
 

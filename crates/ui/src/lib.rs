@@ -179,6 +179,7 @@ impl TerminalView {
 
         {
             let engine = engine.clone();
+            let session = session.clone();
             let exited = exited.clone();
             let area_weak = area.downgrade();
             glib::timeout_add_local(Duration::from_millis(16), move || {
@@ -186,7 +187,13 @@ impl TerminalView {
                 while let Ok(ev) = events.try_recv() {
                     match ev {
                         PtyEvent::Output(bytes) => {
-                            engine.borrow_mut().feed(&bytes);
+                            {
+                                let mut e = engine.borrow_mut();
+                                e.feed(&bytes);
+                                for response in e.take_responses() {
+                                    let _ = session.borrow_mut().write(&response);
+                                }
+                            }
                             got = true;
                         }
                         PtyEvent::Exited(_) => {
