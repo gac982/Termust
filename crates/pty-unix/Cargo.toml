@@ -7,4 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+termust-core.workspace = true
+libc.workspace = true
+mio.workspace = true
 
