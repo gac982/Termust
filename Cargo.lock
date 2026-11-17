@@ -628,6 +628,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "pangocairo"
+version = "0.22.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd199a0fef965b3ebda91a929a1ab5e7729538882c68e8de38e1904d2e094757"
+dependencies = [
+ "cairo-rs",
+ "glib",
+ "pango",
+ "pangocairo-sys",
+]
+
+[[package]]
+name = "pangocairo-sys"
+version = "0.22.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a649a616d67ae68539bc85f00fb45d36fba742ed20fc20e6712a15d8ee52bd3f"
+dependencies = [
+ "cairo-sys-rs",
+ "glib-sys",
+ "libc",
+ "pango-sys",
+ "system-deps 9.0.1",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -964,6 +989,10 @@ version = "0.1.0"
 [[package]]
 name = "termust-host-exec"
 version = "0.1.0"
+dependencies = [
+ "libc",
+ "termust-core",
+]
 
 [[package]]
 name = "termust-pty-unix"
@@ -977,6 +1006,13 @@ dependencies = [
 [[package]]
 name = "termust-render-cairo"
 version = "0.1.0"
+dependencies = [
+ "cairo-rs",
+ "pango",
+ "pangocairo",
+ "termust-core",
+ "termust-text-render",
+]
 
 [[package]]
 name = "termust-render-gl"
@@ -1001,11 +1037,16 @@ dependencies = [
 [[package]]
 name = "termust-text-render"
 version = "0.1.0"
+dependencies = [
+ "cairo-rs",
+ "termust-core",
+]
 
 [[package]]
 name = "termust-ui"
 version = "0.1.0"
 dependencies = [
+ "cairo-rs",
  "gtk4",
  "libadwaita",
  "termust-core",

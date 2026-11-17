@@ -7,4 +7,9 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+termust-core.workspace = true
+termust-text-render.workspace = true
+cairo-rs.workspace = true
+pango.workspace = true
+pangocairo.workspace = true
 

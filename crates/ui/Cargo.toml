@@ -9,5 +9,6 @@ publish = false
 [dependencies]
 termust-core.workspace = true
 termust-text-render.workspace = true
+cairo-rs.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true
