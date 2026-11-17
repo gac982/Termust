@@ -187,38 +187,11 @@ fn initial_tabs() -> usize {
         .clamp(1, 64)
 }
 
+const APP_CSS: &str = include_str!("../../data/termust.css");
+
 fn install_css() {
     let provider = gtk::CssProvider::new();
-    provider.load_from_data(
-        r#"
-tabbar tab {
-  min-width: 110px;
-  margin: 3px 2px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 6px;
-  background-color: alpha(currentColor, 0.08);
-  box-shadow: none;
-}
-tabbar tab:hover {
-  background-color: alpha(currentColor, 0.14);
-}
-tabbar tab:selected {
-  background-color: alpha(@accent_bg_color, 0.45);
-  color: @accent_fg_color;
-}
-tabbar tab > label {
-  font-weight: 500;
-}
-tabbar separator {
-  background-color: transparent;
-  min-width: 0;
-}
-.termust-tab-strip {
-  margin-left: 6px;
-}
-"#,
-    );
+    provider.load_from_data(APP_CSS);
     if let Some(display) = gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
