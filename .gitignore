@@ -1,0 +1,9 @@
+/target/
+/.flatpak-builder/
+/build-dir/
+*.flatpak
+/doc/
+/assets/
+/.superpowers/
+*.log
+.DS_Store
