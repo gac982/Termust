@@ -84,7 +84,7 @@ fn build_ui(app: &Application) {
         }
     }
 
-    header.set_title_widget(Some(manager.borrow().tab_bar()));
+    install_css();
     let new_tab = gtk::Button::builder()
         .icon_name("tab-new-symbolic")
         .tooltip_text("Nueva pestaña")
@@ -99,7 +99,13 @@ fn build_ui(app: &Application) {
             }
         });
     }
-    header.pack_start(&new_tab);
+    let tab_strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    tab_strip.add_css_class("termust-tab-strip");
+    tab_strip.set_hexpand(true);
+    tab_strip.append(&new_tab);
+    tab_strip.append(manager.borrow().tab_bar());
+    header.set_show_title(false);
+    header.pack_start(&tab_strip);
     toolbar.set_content(Some(manager.borrow().tab_view()));
     manager.borrow().focus_active();
 
@@ -181,6 +187,47 @@ fn initial_tabs() -> usize {
         .and_then(|s| s.parse().ok())
         .unwrap_or(1)
         .clamp(1, 64)
+}
+
+fn install_css() {
+    let provider = gtk::CssProvider::new();
+    provider.load_from_data(
+        r#"
+tabbar tab {
+  min-width: 110px;
+  margin: 3px 2px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background-color: alpha(currentColor, 0.08);
+  box-shadow: none;
+}
+tabbar tab:hover {
+  background-color: alpha(currentColor, 0.14);
+}
+tabbar tab:selected {
+  background-color: alpha(@accent_bg_color, 0.45);
+  color: @accent_fg_color;
+}
+tabbar tab > label {
+  font-weight: 500;
+}
+tabbar separator {
+  background-color: transparent;
+  min-width: 0;
+}
+.termust-tab-strip {
+  margin-left: 6px;
+}
+"#,
+    );
+    if let Some(display) = gdk::Display::default() {
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    }
 }
 
 fn map_key(key: gdk::Key) -> Option<CoreKey> {

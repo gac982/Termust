@@ -49,6 +49,7 @@ impl TabManager {
         tab_bar.set_view(Some(&tab_view));
         tab_bar.set_autohide(false);
         tab_bar.set_expand_tabs(false);
+        tab_bar.set_hexpand(true);
         let mut manager = Self {
             tab_view,
             tab_bar,
