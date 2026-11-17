@@ -9,7 +9,7 @@ código de solo lectura, git integrado y detección de agentes de código.
 ## Requisitos de desarrollo
 
 - Linux con GNOME y Wayland (X11 como fallback).
-- Rust 1.92 (`rust-toolchain.toml`).
+- Rust 1.100 (`rust-toolchain.toml`); MSRV 1.92. El Flatpak usa el Rust del SDK (1.98).
 - GTK 4.22 y libadwaita 1.9.
 - Flatpak y flatpak-builder para el empaquetado.
 

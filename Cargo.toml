@@ -24,7 +24,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-rust-version = "1.92"
+rust-version = "1.92"  # MSRV; el toolchain local se pinea en rust-toolchain.toml
 
 [workspace.dependencies]
 termust-core = { path = "crates/core" }
