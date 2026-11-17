@@ -99,13 +99,11 @@ fn build_ui(app: &Application) {
             }
         });
     }
-    let tab_strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    tab_strip.add_css_class("termust-tab-strip");
-    tab_strip.set_hexpand(true);
-    tab_strip.append(&new_tab);
-    tab_strip.append(manager.borrow().tab_bar());
-    header.set_show_title(false);
-    header.pack_start(&tab_strip);
+    header.pack_start(&new_tab);
+    let tab_bar = manager.borrow().tab_bar().clone();
+    tab_bar.set_hexpand(true);
+    tab_bar.set_halign(gtk::Align::Fill);
+    header.set_title_widget(Some(&tab_bar));
     toolbar.set_content(Some(manager.borrow().tab_view()));
     manager.borrow().focus_active();
 
