@@ -1,0 +1,1 @@
+//! Adaptador git local.

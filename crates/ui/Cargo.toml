@@ -1,0 +1,13 @@
+[package]
+name = "termust-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+termust-core.workspace = true
+termust-text-render.workspace = true
+gtk4.workspace = true
+libadwaita.workspace = true

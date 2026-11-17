@@ -4,30 +4,31 @@ Terminal para GNOME, escrito en Rust con GTK4 y libadwaita. Pensado para uso
 personal diario: pestañas, paneles divididos, panel de archivos, visor de
 código de solo lectura, git integrado y detección de agentes de código.
 
-**Estado:** M0 — investigación y diseño. Todavía no hay código de aplicación.
+**Estado:** M1 — walking skeleton. Workspace, tests de arquitectura, CI local, ventana vacía y Flatpak mínimo funcionando. Todavía no hay terminal usable (eso llega en M2).
 
 ## Requisitos de desarrollo
 
 - Linux con GNOME y Wayland (X11 como fallback).
-- Rust estable (la versión mínima se fija en `rust-toolchain.toml` durante M1).
-- GTK 4 y libadwaita (la versión objetivo se fija en M0).
+- Rust 1.92 (`rust-toolchain.toml`).
+- GTK 4.22 y libadwaita 1.9.
 - Flatpak y flatpak-builder para el empaquetado.
 
 ## Compilar y probar
 
-El workspace se crea en M1. Hasta entonces no hay binario. Cuando exista:
-
 ```sh
 cargo build
-cargo test
+cargo test --workspace
 ./scripts/ci/verify.sh
 ```
+
+La app abre una ventana vacía con `cargo run -p termust-app`.
 
 ## Empaquetado
 
 ```sh
-flatpak-builder --repo=build/repo --force-clean build/dir flatpak/io.github.termust.Termust.yml
-flatpak build-bundle build/repo termust.flatpak io.github.termust.Termust
+./scripts/flatpak-src.sh
+flatpak-builder --user --install --force-clean build-dir flatpak/io.github.termust.Termust.yml
+flatpak run io.github.termust.Termust
 ```
 
 ## Licencia
