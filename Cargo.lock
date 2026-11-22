@@ -976,6 +976,9 @@ dependencies = [
 [[package]]
 name = "termust-fs-local"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "termust-git-local"

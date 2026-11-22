@@ -5,6 +5,8 @@ use gtk::glib;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
@@ -18,6 +20,7 @@ const ATTR_PATH: &str = "termust::path";
 const ATTR_ICON: &str = "termust::icon";
 const ATTR_COLOR: &str = "termust::color";
 const ATTR_BROKEN: &str = "termust::broken";
+const ATTR_NAVIGABLE: &str = "termust::navigable";
 
 /// Convierte una entrada del filesystem en un `GFileInfo` reutilizable por
 /// `GtkTreeListModel`. No toca GTK ni requiere display.
@@ -31,7 +34,15 @@ pub fn file_info(entry: &FileEntry) -> gio::FileInfo {
         EntryKind::Other => gio::FileType::Special,
     });
     info.set_is_hidden(entry.hidden);
-    info.set_attribute_string(ATTR_PATH, &entry.path.to_string_lossy());
+    info.set_attribute_string(ATTR_PATH, &encode_path(&entry.path));
+    info.set_attribute_string(
+        ATTR_NAVIGABLE,
+        if entry.is_dir && entry.readable && entry.kind != EntryKind::BrokenSymlink {
+            "1"
+        } else {
+            "0"
+        },
+    );
     info.set_attribute_string(ATTR_ICON, fs::icon_name(entry));
     info.set_attribute_string(ATTR_COLOR, fs::color_class(entry));
     info.set_attribute_string(
@@ -50,7 +61,49 @@ pub fn file_infos(entries: &[FileEntry]) -> Vec<gio::FileInfo> {
 }
 
 pub fn path_from_info(info: &gio::FileInfo) -> Option<PathBuf> {
-    info.attribute_string(ATTR_PATH).map(PathBuf::from)
+    info.attribute_string(ATTR_PATH)
+        .as_deref()
+        .and_then(decode_path)
+}
+
+/// Codifica la ruta en hex para conservar bytes no UTF-8 a través de los
+/// atributos de `GFileInfo` y de los targets de acción de GMenu.
+fn encode_path(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+    let mut out = String::with_capacity(path.as_os_str().as_bytes().len() * 2);
+    for byte in path.as_os_str().as_bytes() {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn decode_path(hex: &str) -> Option<PathBuf> {
+    if !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for chunk in hex.as_bytes().chunks(2) {
+        let text = std::str::from_utf8(chunk).ok()?;
+        bytes.push(u8::from_str_radix(text, 16).ok()?);
+    }
+    Some(PathBuf::from(OsString::from_vec(bytes)))
+}
+
+pub fn is_navigable(info: &gio::FileInfo) -> bool {
+    info.attribute_string(ATTR_NAVIGABLE).as_deref() == Some("1")
+}
+
+/// Quita caracteres de control y marcas bidi que reordenan visualmente el nombre.
+pub fn sanitize_name(name: &str) -> String {
+    name.chars()
+        .filter(|ch| {
+            !ch.is_control()
+                && !matches!(
+                    *ch as u32,
+                    0x202A..=0x202E | 0x2066..=0x2069 | 0x200E | 0x200F
+                )
+        })
+        .collect()
 }
 
 pub fn icon_from_info(info: &gio::FileInfo) -> String {
@@ -67,10 +120,6 @@ pub fn color_from_info(info: &gio::FileInfo) -> String {
 
 pub fn is_broken(info: &gio::FileInfo) -> bool {
     info.attribute_string(ATTR_BROKEN).as_deref() == Some("1")
-}
-
-pub fn is_navigable(info: &gio::FileInfo) -> bool {
-    info.file_type() == gio::FileType::Directory && !is_broken(info)
 }
 
 fn store_for(entries: &[FileEntry]) -> gio::ListStore {
@@ -99,8 +148,10 @@ pub struct FilePanel {
     load_ms: Cell<f64>,
     monitor: RefCell<Option<gio::FileMonitor>>,
     refresh_source: Cell<Option<glib::SourceId>>,
+    refresh_pending: Cell<bool>,
     search_source: Cell<Option<glib::SourceId>>,
     follow_action: RefCell<Option<gio::SimpleAction>>,
+    manual_browse: Cell<bool>,
 }
 
 impl FilePanel {
@@ -131,7 +182,6 @@ impl FilePanel {
                 .tooltip_text("Directorio superior")
                 .build();
             up.add_css_class("flat");
-            up.set_visible(false);
 
             let path_label = gtk::Label::new(None);
             path_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -222,7 +272,8 @@ impl FilePanel {
                 };
                 let broken = is_broken(&info);
                 let navigable = is_navigable(&info);
-                item.set_activatable(!broken);
+                let locked_dir = info.file_type() == gio::FileType::Directory && !navigable;
+                item.set_activatable(!broken && !locked_dir);
                 if let Some(row) = expander.child().and_downcast::<gtk::Box>() {
                     if let Some(icon) = row.first_child().and_downcast::<gtk::Image>() {
                         icon.set_icon_name(Some(&icon_from_info(&info)));
@@ -240,21 +291,21 @@ impl FilePanel {
                         icon.add_css_class(&color_from_info(&info));
                     }
                     if let Some(label) = row.last_child().and_downcast::<gtk::Label>() {
-                        label.set_text(&info.name().to_string_lossy());
+                        label.set_text(&sanitize_name(&info.name().to_string_lossy()));
                         label.remove_css_class("dim-label");
                         label.remove_css_class("termust-dir");
-                        if broken {
+                        if broken || locked_dir {
                             label.add_css_class("dim-label");
                         } else if navigable {
                             label.add_css_class("termust-dir");
                         }
                     }
                 }
-                expander.set_tooltip_text(Some(
+                expander.set_tooltip_text(Some(&sanitize_name(
                     &path_from_info(&info)
                         .map(|path| path.to_string_lossy().to_string())
                         .unwrap_or_default(),
-                ));
+                )));
             });
 
             let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
@@ -311,8 +362,10 @@ impl FilePanel {
                 load_ms: Cell::new(0.0),
                 monitor: RefCell::new(None),
                 refresh_source: Cell::new(None),
+                refresh_pending: Cell::new(false),
                 search_source: Cell::new(None),
                 follow_action: RefCell::new(None),
+                manual_browse: Cell::new(false),
             };
             panel.update_path_label(home);
             panel.install_actions(weak.clone(), &menu_button);
@@ -336,6 +389,7 @@ impl FilePanel {
         if let Some(source) = self.refresh_source.take() {
             source.remove();
         }
+        self.refresh_pending.set(false);
         if let Some(source) = self.search_source.take() {
             source.remove();
         }
@@ -356,7 +410,7 @@ impl FilePanel {
         {
             let weak = weak.clone();
             navigate.connect_activate(move |_, param| {
-                let Some(path) = param.and_then(|value| value.str()).map(PathBuf::from) else {
+                let Some(path) = param.and_then(|value| value.str()).and_then(decode_path) else {
                     return;
                 };
                 if let Some(panel) = weak.upgrade() {
@@ -371,7 +425,7 @@ impl FilePanel {
         {
             let weak = weak.clone();
             open.connect_activate(move |_, param| {
-                let Some(path) = param.and_then(|value| value.str()).map(PathBuf::from) else {
+                let Some(path) = param.and_then(|value| value.str()).and_then(decode_path) else {
                     return;
                 };
                 if let Some(panel) = weak.upgrade() {
@@ -385,7 +439,7 @@ impl FilePanel {
         {
             let weak = weak.clone();
             copy.connect_activate(move |_, param| {
-                let Some(path) = param.and_then(|value| value.str()).map(PathBuf::from) else {
+                let Some(path) = param.and_then(|value| value.str()).and_then(decode_path) else {
                     return;
                 };
                 if let Some(panel) = weak.upgrade() {
@@ -424,6 +478,9 @@ impl FilePanel {
                 action.set_state(&next.to_variant());
                 if let Some(panel) = weak.upgrade() {
                     panel.set_follow(next);
+                    if next {
+                        panel.resume_follow();
+                    }
                 }
             });
         }
@@ -518,6 +575,10 @@ impl FilePanel {
         self.follow.get()
     }
 
+    pub fn up_visible(&self) -> bool {
+        self.up.is_visible()
+    }
+
     /// Navega la raíz del árbol a `path`. Devuelve `false` si ya era la raíz.
     pub fn set_root(self: &Rc<Self>, path: &Path) -> bool {
         let target = path.to_path_buf();
@@ -535,15 +596,21 @@ impl FilePanel {
         if let Some(source) = self.refresh_source.take() {
             source.remove();
         }
+        self.refresh_pending.set(false);
         let path = self.current.borrow().clone();
         let started = Instant::now();
         let result = fs::list_dir(&path, self.show_hidden.get());
         self.update_path_label(&path);
-        self.up.set_sensitive(parent_of(&path).is_some());
+        let parent = parent_of(&path).is_some();
+        self.up.set_visible(parent);
+        self.up.set_sensitive(parent);
         match result {
             Ok(entries) => {
-                self.cache.replace(entries);
-                self.apply_filter();
+                // Los eventos de watch sin cambios reales no colapsan el árbol.
+                if *self.cache.borrow() != entries {
+                    self.cache.replace(entries);
+                    self.apply_filter();
+                }
             }
             Err(error) => {
                 self.cache.replace(Vec::new());
@@ -652,12 +719,14 @@ impl FilePanel {
     }
 
     fn schedule_reload(self: &Rc<Self>) {
-        if let Some(source) = self.refresh_source.take() {
-            source.remove();
+        // Leading-edge: si ya hay un refresco pendiente, no se posterga.
+        if self.refresh_pending.replace(true) {
+            return;
         }
         let weak = Rc::downgrade(self);
         let source = glib::timeout_add_local_once(Duration::from_millis(200), move || {
             if let Some(panel) = weak.upgrade() {
+                panel.refresh_pending.set(false);
                 panel.refresh_source.set(None);
                 panel.reload();
             }
@@ -667,19 +736,37 @@ impl FilePanel {
 
     pub fn set_follow(&self, follow: bool) {
         self.follow.set(follow);
+        if follow {
+            self.manual_browse.set(false);
+        }
         if let Some(settings) = &self.settings {
             let _ = settings.set_boolean("files-follow-cwd", follow);
         }
     }
 
-    /// Navegar a mano deja de seguir el cwd; el usuario puede reactivarlo.
+    /// Navegar a mano pausa el seguimiento hasta que cambie el cwd del shell
+    /// o el usuario lo reactive desde el menú.
     fn note_manual_navigation(&self) {
-        if !self.follow.get() {
-            return;
+        self.manual_browse.set(true);
+    }
+
+    pub fn resume_follow(&self) {
+        self.manual_browse.set(false);
+    }
+
+    /// El cwd del panel activo cambió: se retoma el seguimiento aunque el
+    /// usuario estuviera navegando a mano.
+    pub fn force_follow(self: &Rc<Self>, cwd: &Path) {
+        self.manual_browse.set(false);
+        if self.follow.get() {
+            self.set_root(cwd);
         }
-        self.set_follow(false);
-        if let Some(action) = self.follow_action.borrow().as_ref() {
-            action.set_state(&false.to_variant());
+    }
+
+    /// Reintenta seguir el cwd si el usuario no está navegando a mano.
+    pub fn follow_if_idle(self: &Rc<Self>, cwd: &Path) {
+        if self.follow.get() && !self.manual_browse.get() && self.current() != cwd {
+            self.set_root(cwd);
         }
     }
 
@@ -725,11 +812,13 @@ impl FilePanel {
         let Some((_, info)) = self.find_root_row(name) else {
             return false;
         };
-        if is_broken(&info) {
+        if is_broken(&info)
+            || (info.file_type() == gio::FileType::Directory && !is_navigable(&info))
+        {
             return false;
         }
         if let Some(path) = path_from_info(&info) {
-            if is_navigable(&info) {
+            if info.file_type() == gio::FileType::Directory {
                 self.note_manual_navigation();
                 self.set_root(&path);
             }
@@ -768,10 +857,14 @@ impl FilePanel {
         if is_broken(&info) {
             return;
         }
+        let is_directory = info.file_type() == gio::FileType::Directory;
+        if is_directory && !is_navigable(&info) {
+            return;
+        }
         let Some(path) = path_from_info(&info) else {
             return;
         };
-        if is_navigable(&info) {
+        if is_directory {
             self.note_manual_navigation();
             self.set_root(&path);
         } else {
@@ -807,25 +900,28 @@ impl FilePanel {
             return;
         };
         let menu = gio::Menu::new();
-        if is_navigable(&info) {
+        let is_directory = info.file_type() == gio::FileType::Directory;
+        if is_directory && !is_navigable(&info) {
+            // Fila no navegable: solo copiar ruta.
+        } else if is_navigable(&info) {
             let open = gio::MenuItem::new(Some("Abrir carpeta"), None);
             open.set_action_and_target_value(
                 Some("file.navigate"),
-                Some(&path.to_string_lossy().to_string().to_variant()),
+                Some(&encode_path(&path).to_variant()),
             );
             menu.append_item(&open);
         } else {
             let open = gio::MenuItem::new(Some("Abrir con aplicación externa"), None);
             open.set_action_and_target_value(
                 Some("file.open-external"),
-                Some(&path.to_string_lossy().to_string().to_variant()),
+                Some(&encode_path(&path).to_variant()),
             );
             menu.append_item(&open);
         }
         let copy = gio::MenuItem::new(Some("Copiar ruta"), None);
         copy.set_action_and_target_value(
             Some("file.copy-path"),
-            Some(&path.to_string_lossy().to_string().to_variant()),
+            Some(&encode_path(&path).to_variant()),
         );
         menu.append_item(&copy);
 
@@ -855,6 +951,7 @@ mod tests {
             name: name.to_string(),
             kind,
             is_dir,
+            readable: true,
             hidden: false,
         }
     }
@@ -883,6 +980,31 @@ mod tests {
         assert_eq!(icon_from_info(&code), "text-x-generic-symbolic");
         assert_eq!(color_from_info(&code), "termust-code");
         assert!(!is_navigable(&code));
+    }
+
+    #[test]
+    fn unreadable_dir_is_not_navigable() {
+        let mut locked = entry("locked", EntryKind::Dir, true);
+        locked.readable = false;
+        let info = file_info(&locked);
+        assert_eq!(info.file_type(), gio::FileType::Directory);
+        assert!(!is_navigable(&info));
+    }
+
+    #[test]
+    fn non_utf8_path_roundtrips() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        let mut file = entry("bad.rs", EntryKind::File, false);
+        file.path = PathBuf::from(OsString::from_vec(b"/tmp/bad-\xff.rs".to_vec()));
+        let info = file_info(&file);
+        assert_eq!(path_from_info(&info), Some(file.path));
+    }
+
+    #[test]
+    fn control_and_bidi_names_are_sanitized() {
+        assert_eq!(sanitize_name("a\u{202E}b\u{0007}c"), "abc");
+        assert_eq!(sanitize_name("normal.rs"), "normal.rs");
     }
 
     #[test]

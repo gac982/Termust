@@ -94,6 +94,8 @@ pub struct KeyConfig {
     pub close_tab: bool,
     pub move_tabs: bool,
     pub zoom: bool,
+    pub files_panel: bool,
+    pub vertical_tabs: bool,
 }
 
 impl Default for KeyConfig {
@@ -103,6 +105,8 @@ impl Default for KeyConfig {
             close_tab: true,
             move_tabs: true,
             zoom: true,
+            files_panel: true,
+            vertical_tabs: true,
         }
     }
 }
@@ -118,7 +122,7 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
     let shift = ev.mods.shift;
     let alt = ev.mods.alt;
 
-    if !ctrl && !shift && !alt && ev.key == Key::F(9) {
+    if !ctrl && !shift && !alt && ev.key == Key::F(9) && cfg.files_panel {
         return Some(Action::ToggleFiles);
     }
 
@@ -148,7 +152,7 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
             Key::Char(c) if c.eq_ignore_ascii_case(&'e') => {
                 return Some(Action::SplitPane(SplitOrientation::Vertical))
             }
-            Key::Char(c) if c.eq_ignore_ascii_case(&'l') => {
+            Key::Char(c) if c.eq_ignore_ascii_case(&'l') && cfg.vertical_tabs => {
                 return Some(Action::ToggleVerticalTabs)
             }
             Key::PageUp if cfg.move_tabs => return Some(Action::MoveTabLeft),
@@ -323,6 +327,43 @@ mod tests {
     fn f11_is_fullscreen() {
         assert_eq!(press(Key::F(11), Mods::none()), Some(Action::Fullscreen));
         assert_eq!(press(Key::F(11), Mods::ctrl()), None);
+    }
+
+    #[test]
+    fn f9_toggles_files_panel_and_can_be_disabled() {
+        assert_eq!(press(Key::F(9), Mods::none()), Some(Action::ToggleFiles));
+        let cfg = KeyConfig {
+            files_panel: false,
+            ..KeyConfig::default()
+        };
+        assert_eq!(
+            resolve_shortcut(
+                KeyEvent::new(Key::F(9), Mods::none()),
+                Focus::Terminal,
+                &cfg
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_l_toggles_vertical_tabs_and_can_be_disabled() {
+        assert_eq!(
+            press(Key::Char('L'), Mods::ctrl_shift()),
+            Some(Action::ToggleVerticalTabs)
+        );
+        let cfg = KeyConfig {
+            vertical_tabs: false,
+            ..KeyConfig::default()
+        };
+        assert_eq!(
+            resolve_shortcut(
+                KeyEvent::new(Key::Char('l'), Mods::ctrl_shift()),
+                Focus::Terminal,
+                &cfg
+            ),
+            None
+        );
     }
 
     #[test]

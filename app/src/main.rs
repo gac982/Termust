@@ -607,15 +607,26 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let file_panel = file_panel.clone();
         let files_split = files_split.clone();
         let tab_sidebar = tab_sidebar.clone();
+        let last_followed: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
             tab_sidebar.refresh();
-            if files_split.shows_sidebar() && file_panel.follows_cwd() {
+            if files_split.shows_sidebar() {
                 if let Some(cwd) = manager.borrow().active_cwd() {
-                    if cwd.is_dir() && file_panel.current() != cwd {
-                        file_panel.set_root(&cwd);
+                    if cwd.is_dir() {
+                        let changed = last_followed.borrow().as_ref() != Some(&cwd);
+                        if changed {
+                            *last_followed.borrow_mut() = Some(cwd.clone());
+                            if file_panel.follows_cwd() {
+                                file_panel.force_follow(&cwd);
+                            }
+                        } else if file_panel.follows_cwd() {
+                            file_panel.follow_if_idle(&cwd);
+                        }
                     }
                 }
+            } else {
+                *last_followed.borrow_mut() = None;
             }
             let records = manager.borrow().take_history_records();
             if !records.is_empty() {
@@ -1192,6 +1203,12 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(root.join("a-dir")).unwrap();
             std::fs::create_dir_all(root.join("big")).unwrap();
+            std::fs::create_dir_all(root.join("locked")).unwrap();
+            std::fs::set_permissions(
+                root.join("locked"),
+                std::os::unix::fs::PermissionsExt::from_mode(0o000),
+            )
+            .unwrap();
             std::fs::write(root.join("a-dir/nested.txt"), b"nested").unwrap();
             std::fs::write(root.join("b.txt"), b"b").unwrap();
             std::fs::write(root.join("c.rs"), b"fn main() {}").unwrap();
@@ -1207,7 +1224,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let names = file_panel.visible_names();
             check(
                 "tree_sorted_folders_first",
-                names == vec!["a-dir", "big", "b.txt", "c.rs", "roto"],
+                names == vec!["a-dir", "big", "locked", "b.txt", "c.rs", "roto"],
             );
             let panel_settings = gsettings_with_key("files-panel");
             check(
@@ -1224,7 +1241,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 file_panel.visible_names() == vec!["c.rs"],
             );
             file_panel.set_search("");
-            check("filtro limpiado", file_panel.rows() == 5);
+            check("filtro limpiado", file_panel.rows() == 6);
 
             check(
                 "roto no navegable",
@@ -1236,6 +1253,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 "files_broken_symlink_is_inert",
                 file_panel.current() == before,
             );
+            check(
+                "carpeta sin permisos es fila inerte",
+                file_panel.name_is_navigable("locked") == Some(false)
+                    && !file_panel.activate_root("locked")
+                    && file_panel.current() == before,
+            );
+            check("subir visible", file_panel.up_visible());
 
             let rows_before = file_panel.visible_names().len();
             check("expandir carpeta", file_panel.expand_root("a-dir"));
@@ -1260,6 +1284,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             );
 
             file_panel.set_root(&root.join("big"));
+            check("subir visible en subcarpeta", file_panel.up_visible());
             let load_ms = file_panel.load_ms();
             eprintln!(
                 "termust-files-test: 10k filas={} en {load_ms:.1} ms (objetivo 150 / duro 400)",
@@ -1358,6 +1383,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         );
                         file_panel4.set_follow(true);
                         files_button4.set_active(false);
+                        let _ = std::fs::set_permissions(
+                            root4.join("locked"),
+                            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+                        );
                         let _ = std::fs::remove_dir_all(&root4);
                         eprintln!(
                             "termust-files-test: {}",
@@ -1375,10 +1404,12 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
 
     if std::env::var_os("TERMUST_VERTICAL_TABS_TEST").is_some() {
         let manager = manager.clone();
+        let window = window.clone();
         let tabs_button = tabs_button.clone();
         let tab_sidebar = tab_sidebar.clone();
         let tab_bar = tab_bar.clone();
         let outer_split = outer_split.clone();
+        let home = home.clone();
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(900), move || {
             let mut failed = false;
@@ -1393,11 +1424,30 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 let mut manager = manager.borrow_mut();
                 manager.rename_tab("vertical");
                 let _ = manager.split_active(SplitOrientation::Horizontal);
+                let _ = manager.open_tab(home.clone());
+                manager.rename_tab("otra");
+                let _ = manager.split_active(SplitOrientation::Horizontal);
             }
+            let first_id = manager.borrow().tab_summaries()[0].id;
+            let second_id = manager.borrow().tab_summaries()[1].id;
+            manager.borrow_mut().select_tab(first_id);
+            check(
+                "selección por id actualiza el modelo",
+                manager.borrow().active_tab_id() == Some(first_id),
+            );
+            let focused = gtk::prelude::GtkWindowExt::focus(&window).and_then(|widget| {
+                manager
+                    .borrow()
+                    .active_view()
+                    .map(|view| view.widget() == &widget)
+            });
+            check("selección enfoca el terminal", focused == Some(true));
+
             let tabs = manager.borrow().tab_count();
             let panes = manager.borrow().active_pane_count();
             let cwd = manager.borrow().active_cwd();
             check("2 paneles antes", panes == 2);
+            check("dos pestañas", tabs == 2);
 
             tabs_button.set_active(true);
             tab_sidebar.refresh();
@@ -1434,14 +1484,32 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     && manager.borrow().active_pane_count() == panes
                     && manager.borrow().active_cwd() == cwd,
             );
-            eprintln!(
-                "termust-vertical-tabs: {}",
-                if failed { "FAIL" } else { "ok" }
-            );
-            if failed {
-                std::process::exit(1);
-            }
-            app.quit();
+            TabManager::close_tab(&manager, second_id);
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            let mut failed2 = failed;
+            glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-vertical-tabs: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed2 |= !ok;
+                };
+                check(
+                    "cerrar por id cierra la pestaña completa",
+                    manager2.borrow().tab_count() == 1
+                        && manager2.borrow().active_tab_id() == Some(first_id),
+                );
+                eprintln!(
+                    "termust-vertical-tabs: {}",
+                    if failed2 { "FAIL" } else { "ok" }
+                );
+                if failed2 {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
         });
     }
 
