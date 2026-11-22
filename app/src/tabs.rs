@@ -9,7 +9,8 @@ use std::rc::Rc;
 use std::time::Duration;
 use termust_core::pty::{PtySpawner, SpawnSpec};
 use termust_core::tabs::{
-    Direction, PaneId, PaneTree, Preset, SplitError, SplitOrientation, TabId, TabModel,
+    fits_min_width, Direction, PaneId, PaneTree, Preset, SplitError, SplitOrientation, TabId,
+    TabModel,
 };
 use termust_core::terminal::Size;
 use termust_core::title::display_title;
@@ -316,6 +317,21 @@ impl TabManager {
             .get(&active)
             .and_then(|view| view.cwd())
             .unwrap_or(tab_cwd);
+        let width = self.entries[index].container.width() as f64;
+        if orientation == SplitOrientation::Horizontal {
+            let half = {
+                let model = self.model.borrow();
+                model
+                    .get(tab_id)
+                    .and_then(|tab| tab.layout.rect_of(active))
+                    .map(|(_, _, w, _)| w * width / 2.0)
+            };
+            if let Some(half) = half {
+                if !fits_min_width(half, 1) {
+                    return Err("No hay ancho suficiente (mínimo 320 px por panel)".into());
+                }
+            }
+        }
 
         let new_pane = self
             .model
@@ -347,6 +363,10 @@ impl TabManager {
             return Err("sin pestaña activa".into());
         };
         let tab_id = self.entries[index].id;
+        let width = self.entries[index].container.width() as f64;
+        if !fits_min_width(width, preset.columns()) {
+            return Err("No hay ancho suficiente (mínimo 320 px por panel)".into());
+        }
         let tab_cwd = {
             let model = self.model.borrow();
             model.get(tab_id).map(|tab| tab.cwd.clone())

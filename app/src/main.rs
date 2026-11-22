@@ -313,8 +313,8 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                 );
                 check("3 paneles", mgr.active_pane_count() == 3);
                 check(
-                    "split horizontal 2",
-                    mgr.split_active(SplitOrientation::Horizontal).is_ok(),
+                    "split vertical 2",
+                    mgr.split_active(SplitOrientation::Vertical).is_ok(),
                 );
                 check("4 paneles", mgr.active_pane_count() == 4);
                 check(
@@ -470,7 +470,23 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                         if failed {
                             std::process::exit(1);
                         }
-                        app4.quit();
+                        // Cerrar la pestaña (X) con foreground debe quedar en Stop
+                        // y no cerrar hasta confirmar.
+                        TabManager::close_request(&manager4);
+                        let manager5 = manager4.clone();
+                        let app5 = app4.clone();
+                        glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                            let pages = manager5.borrow().tab_view().n_pages();
+                            let ok = pages == 1;
+                            eprintln!(
+                                "termust-close-confirm-test: pestaña no cerró sin confirmar {}",
+                                if ok { "ok" } else { "FAIL" }
+                            );
+                            if !ok {
+                                std::process::exit(1);
+                            }
+                            app5.quit();
+                        });
                     });
                     if failed {
                         std::process::exit(1);

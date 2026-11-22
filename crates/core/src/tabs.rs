@@ -4,6 +4,15 @@ use std::path::PathBuf;
 pub type TabId = u64;
 pub type PaneId = u64;
 pub const MAX_PANES: usize = 4;
+pub const MIN_PANE_WIDTH_PX: f64 = 320.0;
+
+/// El ancho disponible debe alcanzar para `columns` paneles de 320 px.
+pub fn fits_min_width(available_px: f64, columns: usize) -> bool {
+    if columns == 0 || available_px <= 0.0 {
+        return true;
+    }
+    available_px / columns as f64 + 0.5 >= MIN_PANE_WIDTH_PX
+}
 const MIN_RATIO: f64 = 0.1;
 const MAX_RATIO: f64 = 0.9;
 const DEFAULT_RATIO: f64 = 0.5;
@@ -46,6 +55,14 @@ impl Preset {
             Preset::TwoColumns | Preset::TwoRows => 2,
             Preset::ThreeColumns => 3,
             Preset::Grid2x2 => 4,
+        }
+    }
+
+    pub fn columns(self) -> usize {
+        match self {
+            Preset::TwoColumns | Preset::Grid2x2 => 2,
+            Preset::ThreeColumns => 3,
+            Preset::TwoRows => 1,
         }
     }
 
@@ -124,6 +141,40 @@ impl PaneTree {
 
     pub fn is_empty(&self) -> bool {
         false
+    }
+
+    pub fn rect_of(&self, pane: PaneId) -> Option<(f64, f64, f64, f64)> {
+        let mut rects = Vec::new();
+        collect_rects(
+            self,
+            Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 1.0,
+                h: 1.0,
+            },
+            &mut rects,
+        );
+        rects
+            .into_iter()
+            .find(|(id, _)| *id == pane)
+            .map(|(_, r)| (r.x, r.y, r.w, r.h))
+    }
+
+    /// Máximo de paneles que comparten una fila.
+    pub fn max_columns(&self) -> usize {
+        match self {
+            PaneTree::Leaf(_) => 1,
+            PaneTree::Split {
+                orientation,
+                first,
+                second,
+                ..
+            } => match orientation {
+                SplitOrientation::Horizontal => first.max_columns() + second.max_columns(),
+                SplitOrientation::Vertical => first.max_columns().max(second.max_columns()),
+            },
+        }
     }
 
     pub fn contains(&self, id: PaneId) -> bool {
@@ -879,6 +930,34 @@ mod tests {
         assert_eq!(panes.len(), 1);
         assert!(m.contains_pane(panes[0]));
         assert!(!m.contains_pane(999));
+    }
+
+    #[test]
+    fn geometry_columns_and_min_width() {
+        let grid = Preset::Grid2x2.build(&[1, 2, 3, 4]);
+        assert_eq!(grid.max_columns(), 2);
+        assert_eq!(grid.rect_of(1), Some((0.0, 0.0, 0.5, 0.5)));
+        assert_eq!(grid.rect_of(2), Some((0.0, 0.5, 0.5, 0.5)));
+        assert_eq!(grid.rect_of(3), Some((0.5, 0.0, 0.5, 0.5)));
+        assert_eq!(grid.rect_of(4), Some((0.5, 0.5, 0.5, 0.5)));
+        let three = Preset::ThreeColumns.build(&[1, 2, 3]);
+        assert_eq!(three.max_columns(), 3);
+        let rows = Preset::TwoRows.build(&[1, 2]);
+        assert_eq!(rows.max_columns(), 1);
+        assert_eq!(Preset::TwoColumns.columns(), 2);
+        assert_eq!(Preset::ThreeColumns.columns(), 3);
+        assert_eq!(Preset::TwoRows.columns(), 1);
+        assert_eq!(Preset::Grid2x2.columns(), 2);
+    }
+
+    #[test]
+    fn min_width_policy() {
+        assert!(fits_min_width(1024.0, 2));
+        assert!(fits_min_width(1024.0, 3));
+        assert!(!fits_min_width(900.0, 3));
+        assert!(!fits_min_width(600.0, 2));
+        assert!(fits_min_width(0.0, 4));
+        assert!(fits_min_width(1024.0, 0));
     }
 
     #[test]
