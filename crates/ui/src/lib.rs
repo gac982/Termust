@@ -12,7 +12,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 use termust_core::mouse::{encode_mouse, MouseButton, MouseEventKind, MouseMods};
 use termust_core::pty::{PtyEvent, PtySession};
-use termust_core::terminal::{Modes, PromptState, Size, Snapshot, TerminalEngine};
+use termust_core::terminal::{CommandRecord, Modes, PromptState, Size, Snapshot, TerminalEngine};
 use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRenderer, Theme};
 
 pub struct TerminalView {
@@ -420,6 +420,21 @@ impl TerminalView {
     pub fn clear_selection(&self) {
         self.selection.set(None);
         self.area.queue_draw();
+    }
+
+    pub fn history_ready(&self) -> bool {
+        if self.selection.get().is_some() {
+            return false;
+        }
+        self.engine.borrow_mut().history_ready()
+    }
+
+    pub fn take_history(&self) -> Vec<CommandRecord> {
+        self.engine.borrow_mut().take_history()
+    }
+
+    pub fn bracketed_paste(&self) -> bool {
+        self.engine.borrow().bracketed_paste()
     }
 
     pub fn has_foreground_job(&self) -> bool {

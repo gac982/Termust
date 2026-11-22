@@ -3,6 +3,7 @@
 
 pub const APP_ID: &str = "io.github.termust.Termost";
 
+pub mod history;
 pub mod keymap;
 pub mod mouse;
 pub mod pty;

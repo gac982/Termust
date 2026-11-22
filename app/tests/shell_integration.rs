@@ -72,6 +72,14 @@ fn bash_emits_osc7_and_osc133() {
     assert!(out.contains("TERMUST_IT_42"), "output: {out:?}");
     assert!(out.contains("\x1b]7;file://"), "missing OSC 7: {out:?}");
     assert!(out.contains("\x1b]133;"), "missing OSC 133: {out:?}");
+    assert!(
+        out.contains("\x1b]133;B"),
+        "missing prompt-end mark: {out:?}"
+    );
+    assert!(
+        out.contains("\x1b]633;E;"),
+        "missing command payload: {out:?}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -95,6 +103,15 @@ fn zsh_emits_osc7_and_osc133_without_recursion() {
     assert!(out.contains("TERMUST_IT_42"), "output: {out:?}");
     assert!(out.contains("\x1b]7;file://"), "missing OSC 7: {out:?}");
     assert!(out.contains("\x1b]133;"), "missing OSC 133: {out:?}");
+    assert!(
+        out.contains("\x1b]133;B"),
+        "missing prompt-end mark: {out:?}"
+    );
+    assert!(
+        out.contains("\x1b]633;E;"),
+        "missing command payload: {out:?}"
+    );
+    assert!(out.contains("\x1b]633;V;"), "missing keymap mark: {out:?}");
     assert!(
         !out.contains("recursion limit"),
         "zsh shim recursed: {out:?}"

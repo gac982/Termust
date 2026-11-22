@@ -14,7 +14,8 @@ use alacritty_terminal::vte::ansi::{
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use termust_core::terminal::{
-    Attrs, Cell, Color, Cursor, Modes, PromptStatus, Rgb, Size, Snapshot, TerminalEngine,
+    Attrs, Cell, Color, CommandRecord, Cursor, Modes, PromptState, PromptStatus, Rgb, Size,
+    Snapshot, TerminalEngine,
 };
 
 type Proc = Processor<StdSyncHandler>;
@@ -46,12 +47,23 @@ impl EventListener for Listener {
     }
 }
 
+struct PendingCommand {
+    text: String,
+    cwd: PathBuf,
+    timestamp: u64,
+    started: bool,
+}
+
 pub struct AlacrittyEngine {
     term: Term<Listener>,
     parser: Proc,
     osc: OscScanner,
     size: Size,
     responses: Receiver<Event>,
+    prompt_end: Option<(usize, usize)>,
+    vi_mode: bool,
+    pending: Option<PendingCommand>,
+    history: Vec<CommandRecord>,
 }
 
 impl AlacrittyEngine {
@@ -75,6 +87,10 @@ impl AlacrittyEngine {
             osc: OscScanner::new(),
             size,
             responses,
+            prompt_end: None,
+            vi_mode: false,
+            pending: None,
+            history: Vec::new(),
         }
     }
 
@@ -87,6 +103,45 @@ impl TerminalEngine for AlacrittyEngine {
     fn feed(&mut self, bytes: &[u8]) {
         self.parser.advance(&mut self.term, bytes);
         self.osc.feed(bytes);
+        for event in self.osc.take_events() {
+            match event {
+                crate::osc::OscEvent::Prompt(crate::osc::PromptMark::CommandStart) => {
+                    let content = self.term.renderable_content();
+                    self.prompt_end = Some((
+                        content.cursor.point.line.0.max(0) as usize,
+                        content.cursor.point.column.0,
+                    ));
+                }
+                crate::osc::OscEvent::Prompt(crate::osc::PromptMark::CommandExecuted) => {
+                    if let Some(pending) = self.pending.as_mut() {
+                        pending.started = true;
+                    }
+                }
+                crate::osc::OscEvent::Prompt(crate::osc::PromptMark::Finished(code)) => {
+                    if let Some(pending) = self.pending.take() {
+                        let text = pending.text.trim().to_string();
+                        if pending.started && !text.is_empty() {
+                            self.history.push(CommandRecord {
+                                text,
+                                cwd: pending.cwd,
+                                timestamp: pending.timestamp,
+                                exit_code: code,
+                            });
+                        }
+                    }
+                }
+                crate::osc::OscEvent::Command(text) => {
+                    self.pending = Some(PendingCommand {
+                        text,
+                        cwd: self.osc.cwd().cloned().unwrap_or_default(),
+                        timestamp: now_secs(),
+                        started: false,
+                    });
+                }
+                crate::osc::OscEvent::ViMode(vi) => self.vi_mode = vi,
+                _ => {}
+            }
+        }
     }
 
     fn resize(&mut self, size: Size) {
@@ -181,6 +236,36 @@ impl TerminalEngine for AlacrittyEngine {
         }
         out
     }
+
+    fn history_ready(&mut self) -> bool {
+        let content = self.term.renderable_content();
+        if content.mode.contains(TermMode::ALT_SCREEN) || self.vi_mode {
+            return false;
+        }
+        if self.osc.prompt().state != PromptState::AtPrompt {
+            return false;
+        }
+        let cursor = (
+            content.cursor.point.line.0.max(0) as usize,
+            content.cursor.point.column.0,
+        );
+        self.prompt_end == Some(cursor)
+    }
+
+    fn take_history(&mut self) -> Vec<CommandRecord> {
+        std::mem::take(&mut self.history)
+    }
+
+    fn bracketed_paste(&self) -> bool {
+        self.term.mode().contains(TermMode::BRACKETED_PASTE)
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
 }
 
 fn map_color(color: AnsiColor) -> Color {
@@ -275,6 +360,48 @@ mod tests {
         let s = e.snapshot();
         assert_eq!(s.size, Size::new(30, 8));
         assert_eq!(s.cells.len(), 240);
+    }
+
+    #[test]
+    fn history_capture_and_readiness() {
+        let mut e = engine();
+        e.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert!(e.history_ready());
+        e.feed(b"ls");
+        assert!(!e.history_ready());
+        e.feed(b"\x08\x08");
+        assert!(e.history_ready());
+        e.feed(b"\x1b]633;E;cargo test\x07\x1b]133;C\x07");
+        e.feed(b"\x1b]133;D;3\x07");
+        let history = e.take_history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].text, "cargo test");
+        assert_eq!(history[0].exit_code, Some(3));
+        assert!(e.take_history().is_empty());
+    }
+
+    #[test]
+    fn history_index_from_osc133() {
+        let mut e = engine();
+        e.feed(b"\x1b]633;E;ls -la\x07\x1b]133;C\x07");
+        e.feed(b"\x1b]133;D;1\x07");
+        let history = e.take_history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].text, "ls -la");
+        assert_eq!(history[0].exit_code, Some(1));
+    }
+
+    #[test]
+    fn history_ready_rejects_alt_screen_and_vi_mode() {
+        let mut e = engine();
+        e.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert!(e.history_ready());
+        e.feed(b"\x1b[?1049h");
+        assert!(!e.history_ready());
+        e.feed(b"\x1b[?1049l\x1b]633;V;vicmd\x07");
+        assert!(!e.history_ready());
+        e.feed(b"\x1b]633;V;main\x07");
+        assert!(e.history_ready());
     }
 
     #[test]
