@@ -4,6 +4,7 @@
 pub const APP_ID: &str = "io.github.termust.Termost";
 
 pub mod keymap;
+pub mod mouse;
 pub mod pty;
 pub mod shell;
 pub mod tabs;

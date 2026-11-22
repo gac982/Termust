@@ -10,6 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
+use termust_core::mouse::{encode_mouse, MouseButton, MouseEventKind, MouseMods};
 use termust_core::pty::{PtyEvent, PtySession};
 use termust_core::terminal::{Modes, Size, Snapshot, TerminalEngine};
 use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRenderer, Theme};
@@ -18,7 +19,7 @@ pub struct TerminalView {
     area: gtk::DrawingArea,
     engine: Rc<RefCell<Box<dyn TerminalEngine>>>,
     theme: Rc<RefCell<Theme>>,
-    font: Rc<FontSpec>,
+    font: Rc<RefCell<FontSpec>>,
     selection: Rc<Cell<Option<Selection>>>,
     exited: Rc<Cell<bool>>,
 }
@@ -39,9 +40,12 @@ impl TerminalView {
         let engine = Rc::new(RefCell::new(engine));
         let session = Rc::new(RefCell::new(session));
         let renderer = Rc::new(renderer);
-        let font = Rc::new(FontSpec::default());
+        let font = Rc::new(RefCell::new(system_monospace_font()));
         let theme = Rc::new(RefCell::new(Theme::default()));
-        let metrics = Rc::new(Cell::new(compute_metrics(&**renderer, &font)));
+        let metrics = Rc::new(Cell::new(compute_metrics(
+            &**renderer,
+            &font.borrow().clone(),
+        )));
         let selection: Rc<Cell<Option<Selection>>> = Rc::new(Cell::new(None));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
@@ -58,6 +62,7 @@ impl TerminalView {
             let last_modes = last_modes.clone();
             let last_size = last_size.clone();
             area.set_draw_func(move |_, cr, w, h| {
+                let font = font.borrow().clone();
                 let m = renderer.metrics(cr, &font);
                 metrics.set(m);
                 let cols = m.cols_for_width(w as f64);
@@ -70,7 +75,7 @@ impl TerminalView {
                 let snapshot = engine.borrow_mut().snapshot();
                 last_modes.set(snapshot.modes);
                 let opts = PaintOpts {
-                    font: (*font).clone(),
+                    font,
                     selection: selection.get(),
                     bg_alpha: 1.0,
                 };
@@ -114,11 +119,45 @@ impl TerminalView {
             area.add_controller(key);
         }
 
+        let pointer = Rc::new(Cell::new((0.0f64, 0.0f64)));
+
         {
             let engine = engine.clone();
+            let session = session.clone();
+            let modes = last_modes.clone();
+            let metrics = metrics.clone();
+            let last_size = last_size.clone();
+            let pointer = pointer.clone();
             let area_scroll = area.clone();
             let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
-            scroll.connect_scroll(move |_, _dx, dy| {
+            scroll.connect_scroll(move |controller, _dx, dy| {
+                let m_modes = modes.get();
+                let state = controller.current_event_state();
+                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+                if m_modes.reports_mouse() && !shift {
+                    let m = metrics.get();
+                    if m.width <= 0.0 || m.height <= 0.0 {
+                        return glib::Propagation::Stop;
+                    }
+                    let (x, y) = pointer.get();
+                    let (rows, cols) = last_size.get();
+                    let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                    let button = if dy > 0.0 {
+                        MouseButton::WheelDown
+                    } else {
+                        MouseButton::WheelUp
+                    };
+                    write_mouse(
+                        &session,
+                        MouseEventKind::Press,
+                        button,
+                        row,
+                        col,
+                        state,
+                        m_modes,
+                    );
+                    return glib::Propagation::Stop;
+                }
                 engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
                 area_scroll.queue_draw();
                 glib::Propagation::Stop
@@ -127,55 +166,172 @@ impl TerminalView {
         }
 
         {
+            let session = session.clone();
+            let modes = last_modes.clone();
             let selection = selection.clone();
             let metrics = metrics.clone();
-            let area_drag = area.clone();
-            let start_px = Rc::new(Cell::new((0.0f64, 0.0f64)));
-            let drag = gtk::GestureDrag::new();
-            let drag_begin = drag.clone();
-            let area_draw = area_drag.clone();
-            let selection_begin = selection.clone();
-            let metrics_begin = metrics.clone();
-            let start_begin = start_px.clone();
-            drag_begin.connect_drag_begin(move |_, x, y| {
-                start_begin.set((x, y));
-                let cell = cell_at(x, y, metrics_begin.get());
-                selection_begin.set(Some(Selection {
-                    start: cell,
-                    end: cell,
-                }));
-                area_draw.queue_draw();
-            });
-            let area_draw = area_drag.clone();
-            let selection_update = selection.clone();
-            let metrics_update = metrics.clone();
-            let start_update = start_px.clone();
-            drag.connect_drag_update(move |_, ox, oy| {
-                let (sx, sy) = start_update.get();
-                let end = cell_at(sx + ox, sy + oy, metrics_update.get());
-                if let Some(mut s) = selection_update.get() {
-                    s.end = end;
-                    selection_update.set(Some(s));
-                }
-                area_draw.queue_draw();
-            });
-            area.add_controller(drag);
-        }
+            let last_size = last_size.clone();
+            let pointer = pointer.clone();
+            let area_input = area.clone();
+            let anchor: Rc<Cell<Option<(usize, usize)>>> = Rc::new(Cell::new(None));
+            let press_px = Rc::new(Cell::new((0.0f64, 0.0f64)));
+            let pressed_button: Rc<Cell<Option<MouseButton>>> = Rc::new(Cell::new(None));
+            let moved = Rc::new(Cell::new(false));
 
-        {
-            let session = session.clone();
-            area.connect_destroy(move |_| {
-                let _ = session.borrow_mut().kill();
-            });
-        }
-
-        {
-            let area_click = area.clone();
             let click = gtk::GestureClick::new();
-            click.connect_pressed(move |_, _, _, _| {
-                area_click.grab_focus();
-            });
+            {
+                let session = session.clone();
+                let modes = modes.clone();
+                let selection = selection.clone();
+                let metrics = metrics.clone();
+                let last_size = last_size.clone();
+                let pointer = pointer.clone();
+                let anchor = anchor.clone();
+                let press_px = press_px.clone();
+                let pressed_button = pressed_button.clone();
+                let moved = moved.clone();
+                let area_input = area_input.clone();
+                click.connect_pressed(move |gesture, _n_press, x, y| {
+                    area_input.grab_focus();
+                    pointer.set((x, y));
+                    let state = gesture.current_event_state();
+                    let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+                    let m = metrics.get();
+                    let (rows, cols) = last_size.get();
+                    if m.width <= 0.0 || m.height <= 0.0 {
+                        return;
+                    }
+                    let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                    let m_modes = modes.get();
+                    let button = gesture.current_button();
+                    if m_modes.reports_mouse() && !shift {
+                        selection.set(None);
+                        anchor.set(None);
+                        area_input.queue_draw();
+                        if let Some(b) = gdk_mouse_button(button) {
+                            write_mouse(
+                                &session,
+                                MouseEventKind::Press,
+                                b,
+                                row,
+                                col,
+                                state,
+                                m_modes,
+                            );
+                            pressed_button.set(Some(b));
+                        }
+                        return;
+                    }
+                    match button {
+                        1 => {
+                            selection.set(None);
+                            anchor.set(Some((row, col)));
+                            press_px.set((x, y));
+                            moved.set(false);
+                            area_input.queue_draw();
+                        }
+                        2 => {
+                            paste_from(
+                                area_input.primary_clipboard(),
+                                session.clone(),
+                                modes.clone(),
+                            );
+                        }
+                        _ => {}
+                    }
+                });
+            }
+
+            {
+                let session = session.clone();
+                let modes = modes.clone();
+                let metrics = metrics.clone();
+                let last_size = last_size.clone();
+                let pointer = pointer.clone();
+                let pressed_button = pressed_button.clone();
+                let anchor = anchor.clone();
+                click.connect_released(move |gesture, _n_press, x, y| {
+                    pointer.set((x, y));
+                    let m = metrics.get();
+                    let (rows, cols) = last_size.get();
+                    if let Some(b) = pressed_button.get() {
+                        let state = gesture.current_event_state();
+                        let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                        write_mouse(
+                            &session,
+                            MouseEventKind::Release,
+                            b,
+                            row,
+                            col,
+                            state,
+                            modes.get(),
+                        );
+                        pressed_button.set(None);
+                    }
+                    anchor.set(None);
+                });
+            }
             area.add_controller(click);
+
+            let motion = gtk::EventControllerMotion::new();
+            {
+                let pointer = pointer.clone();
+                motion.connect_enter(move |_, x, y| pointer.set((x, y)));
+            }
+            {
+                let session = session.clone();
+                let modes = modes.clone();
+                let selection = selection.clone();
+                let metrics = metrics.clone();
+                let last_size = last_size.clone();
+                let pointer = pointer.clone();
+                let anchor = anchor.clone();
+                let press_px = press_px.clone();
+                let pressed_button = pressed_button.clone();
+                let moved = moved.clone();
+                let area_input = area_input.clone();
+                motion.connect_motion(move |controller, x, y| {
+                    pointer.set((x, y));
+                    let m = metrics.get();
+                    let (rows, cols) = last_size.get();
+                    if m.width <= 0.0 || m.height <= 0.0 {
+                        return;
+                    }
+                    let state = controller.current_event_state();
+                    let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
+                    let m_modes = modes.get();
+                    let tracking = m_modes.mouse_motion
+                        || (m_modes.mouse_drag && pressed_button.get().is_some());
+                    if m_modes.reports_mouse() && !shift && tracking {
+                        let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                        let button = pressed_button.get().unwrap_or(MouseButton::None);
+                        write_mouse(
+                            &session,
+                            MouseEventKind::Motion,
+                            button,
+                            row,
+                            col,
+                            state,
+                            m_modes,
+                        );
+                        return;
+                    }
+                    // Sin mouse tracking, un click no selecciona: la
+                    // selección empieza recién cuando hay arrastre.
+                    let Some(start) = anchor.get() else {
+                        return;
+                    };
+                    let (px, py) = press_px.get();
+                    if !moved.get() && (x - px).hypot(y - py) < 3.0 {
+                        return;
+                    }
+                    moved.set(true);
+                    let end = clamp_cell(cell_at(x, y, m), rows, cols);
+                    selection.set(Some(Selection { start, end }));
+                    area_input.queue_draw();
+                });
+            }
+            area.add_controller(motion);
         }
 
         {
@@ -242,8 +398,8 @@ impl TerminalView {
         self.area.queue_draw();
     }
 
-    pub fn set_font(&mut self, font: FontSpec) {
-        self.font = Rc::new(font);
+    pub fn set_font(&self, font: FontSpec) {
+        *self.font.borrow_mut() = font;
         self.area.queue_draw();
     }
 
@@ -263,6 +419,63 @@ impl TerminalView {
         self.selection.set(None);
         self.area.queue_draw();
     }
+}
+
+/// Fuente monoespaciada del sistema, igual que GNOME Console.
+pub fn system_monospace_font() -> FontSpec {
+    let Some(source) = gio::SettingsSchemaSource::default() else {
+        return FontSpec::default();
+    };
+    if source.lookup("org.gnome.desktop.interface", true).is_none() {
+        return FontSpec::default();
+    }
+    let settings = gio::Settings::new("org.gnome.desktop.interface");
+    FontSpec::parse_pango(&settings.string("monospace-font-name")).unwrap_or_default()
+}
+
+fn mouse_mods(state: gdk::ModifierType) -> MouseMods {
+    MouseMods {
+        shift: state.contains(gdk::ModifierType::SHIFT_MASK),
+        alt: state.contains(gdk::ModifierType::ALT_MASK),
+        ctrl: state.contains(gdk::ModifierType::CONTROL_MASK),
+    }
+}
+
+fn gdk_mouse_button(button: u32) -> Option<MouseButton> {
+    match button {
+        1 => Some(MouseButton::Left),
+        2 => Some(MouseButton::Middle),
+        3 => Some(MouseButton::Right),
+        _ => None,
+    }
+}
+
+fn write_mouse(
+    session: &Rc<RefCell<Box<dyn PtySession>>>,
+    kind: MouseEventKind,
+    button: MouseButton,
+    row: usize,
+    col: usize,
+    state: gdk::ModifierType,
+    modes: Modes,
+) {
+    let bytes = encode_mouse(
+        kind,
+        button,
+        col + 1,
+        row + 1,
+        mouse_mods(state),
+        modes.sgr_mouse,
+        modes.utf8_mouse,
+    );
+    let _ = session.borrow_mut().write(&bytes);
+}
+
+fn clamp_cell(cell: (usize, usize), rows: usize, cols: usize) -> (usize, usize) {
+    (
+        cell.0.min(rows.saturating_sub(1)),
+        cell.1.min(cols.saturating_sub(1)),
+    )
 }
 
 fn compute_metrics(renderer: &dyn TextRenderer, font: &FontSpec) -> CellMetrics {
@@ -316,21 +529,28 @@ fn paste_clipboard(
     session: Rc<RefCell<Box<dyn PtySession>>>,
     modes: Rc<Cell<Modes>>,
 ) {
+    paste_from(area.clipboard(), session, modes);
+}
+
+fn paste_from(
+    clipboard: gdk::Clipboard,
+    session: Rc<RefCell<Box<dyn PtySession>>>,
+    modes: Rc<Cell<Modes>>,
+) {
     let bracketed = modes.get().bracketed_paste;
-    area.clipboard()
-        .read_text_async(None::<&gio::Cancellable>, move |res| {
-            if let Ok(Some(text)) = res {
-                let mut bytes = Vec::with_capacity(text.len() + 12);
-                if bracketed {
-                    bytes.extend_from_slice(b"\x1b[200~");
-                }
-                bytes.extend_from_slice(text.as_bytes());
-                if bracketed {
-                    bytes.extend_from_slice(b"\x1b[201~");
-                }
-                let _ = session.borrow_mut().write(&bytes);
+    clipboard.read_text_async(None::<&gio::Cancellable>, move |res| {
+        if let Ok(Some(text)) = res {
+            let mut bytes = Vec::with_capacity(text.len() + 12);
+            if bracketed {
+                bytes.extend_from_slice(b"\x1b[200~");
             }
-        });
+            bytes.extend_from_slice(text.as_bytes());
+            if bracketed {
+                bytes.extend_from_slice(b"\x1b[201~");
+            }
+            let _ = session.borrow_mut().write(&bytes);
+        }
+    });
 }
 
 /// Traduce una tecla de GDK a bytes del terminal.
@@ -458,6 +678,16 @@ mod tests {
             encode_key(gdk::Key::Up, none, app),
             Some(b"\x1bOA".to_vec())
         );
+    }
+
+    #[test]
+    fn cell_clamping_and_button_mapping() {
+        assert_eq!(clamp_cell((5, 9), 3, 4), (2, 3));
+        assert_eq!(clamp_cell((0, 0), 0, 0), (0, 0));
+        assert_eq!(gdk_mouse_button(1), Some(MouseButton::Left));
+        assert_eq!(gdk_mouse_button(2), Some(MouseButton::Middle));
+        assert_eq!(gdk_mouse_button(3), Some(MouseButton::Right));
+        assert_eq!(gdk_mouse_button(4), None);
     }
 
     #[test]

@@ -82,8 +82,23 @@ pub struct Modes {
     pub alt_screen: bool,
     pub bracketed_paste: bool,
     pub app_cursor: bool,
-    pub mouse_reporting: bool,
+    /// 1000/1002/1003: cualquier modo de reporte de ratón.
+    pub mouse_click: bool,
+    /// 1002/1003: reportar movimiento mientras hay un botón presionado.
+    pub mouse_drag: bool,
+    /// 1003: reportar todo movimiento.
+    pub mouse_motion: bool,
+    /// 1006: coordenadas SGR.
+    pub sgr_mouse: bool,
+    /// 1005: coordenadas UTF-8 en el protocolo legacy.
+    pub utf8_mouse: bool,
     pub show_cursor: bool,
+}
+
+impl Modes {
+    pub fn reports_mouse(&self) -> bool {
+        self.mouse_click || self.mouse_drag || self.mouse_motion
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
