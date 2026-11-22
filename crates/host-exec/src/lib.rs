@@ -504,7 +504,19 @@ mod tests {
 /// Comando para ejecutar una herramienta del host (`git`, editores) desde la
 /// app. En Flatpak pasa por `flatpak-spawn --host`; fuera, ejecuta directo.
 pub fn host_command(program: &str, args: &[OsString], cwd: Option<&Path>) -> Command {
-    build_host_command(is_flatpak(), program, args, cwd)
+    host_command_with_env(program, args, cwd, &[])
+}
+
+/// Igual que `host_command` pero propaga variables al proceso del host. En
+/// Flatpak `flatpak-spawn` no hereda el entorno del sandbox: se traduce cada
+/// variable a `--env=K=V`.
+pub fn host_command_with_env(
+    program: &str,
+    args: &[OsString],
+    cwd: Option<&Path>,
+    env: &[(OsString, OsString)],
+) -> Command {
+    build_host_command_env(is_flatpak(), program, args, cwd, env)
 }
 
 /// Constructor puro para testear el argv sin depender del sandbox.
@@ -514,9 +526,27 @@ pub fn build_host_command(
     args: &[OsString],
     cwd: Option<&Path>,
 ) -> Command {
+    build_host_command_env(flatpak, program, args, cwd, &[])
+}
+
+pub fn build_host_command_env(
+    flatpak: bool,
+    program: &str,
+    args: &[OsString],
+    cwd: Option<&Path>,
+    env: &[(OsString, OsString)],
+) -> Command {
     if flatpak {
         let mut command = Command::new("flatpak-spawn");
         command.arg("--host");
+        for (key, value) in env {
+            let mut pair = key.clone();
+            pair.push("=");
+            pair.push(value);
+            let mut arg = OsString::from("--env=");
+            arg.push(pair);
+            command.arg(arg);
+        }
         if let Some(cwd) = cwd {
             command.arg(format!("--directory={}", cwd.display()));
         }
@@ -528,6 +558,9 @@ pub fn build_host_command(
         command.args(args);
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
+        }
+        for (key, value) in env {
+            command.env(key, value);
         }
         command
     }
@@ -695,6 +728,15 @@ mod host_command_tests {
             ]
         );
         assert!(command.get_current_dir().is_none());
+
+        let env = [
+            (OsString::from("GIT_TERMINAL_PROMPT"), OsString::from("0")),
+            (OsString::from("GIT_SSH_COMMAND"), OsString::from("ssh")),
+        ];
+        let command =
+            build_host_command_env(true, "git", &args, Some(Path::new("/tmp/repo")), &env);
+        let argv: Vec<OsString> = command.get_args().map(|arg| arg.to_os_string()).collect();
+        assert!(argv.contains(&OsString::from("--env=GIT_TERMINAL_PROMPT=0")));
 
         let command = build_host_command(false, "git", &args, Some(Path::new("/tmp/repo")));
         assert_eq!(command.get_program(), OsString::from("git"));

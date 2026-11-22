@@ -13,6 +13,7 @@ use termust_git_local::{
     commit_hint, split_staged, ChangeKind, Diff, DiffLineKind, Git, GitError, GitRunner, Repo,
     RepoStatus,
 };
+use termust_git_remote::{parse_remote_url, Remote, Transport};
 
 const DIFF_CAP: usize = 5_000;
 const DIFF_CAP_LARGE: usize = 20_000;
@@ -36,6 +37,7 @@ pub struct GitPanel {
     root: gtk::Box,
     repo_label: gtk::Label,
     branch_label: gtk::Label,
+    push_button: gtk::Button,
     list: gtk::ListBox,
     row_files: RefCell<Vec<Option<usize>>>,
     diff_buffer: gtk::TextBuffer,
@@ -51,6 +53,8 @@ pub struct GitPanel {
     cwd: RefCell<Option<PathBuf>>,
     repo: RefCell<Option<Repo>>,
     status: RefCell<Option<RepoStatus>>,
+    remotes: RefCell<Vec<Remote>>,
+    last_push: RefCell<Option<Result<String, String>>>,
     selected: RefCell<Option<PathBuf>>,
     diff_cap: Cell<usize>,
     diff_lines: Cell<usize>,
@@ -80,6 +84,10 @@ impl GitPanel {
         let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
         refresh.add_css_class("flat");
         refresh.set_tooltip_text(Some("Actualizar"));
+        let remotes_button = gtk::Button::with_label("Remotes");
+        remotes_button.add_css_class("flat");
+        let push_button = gtk::Button::with_label("Push");
+        push_button.add_css_class("suggested-action");
 
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header.set_margin_top(6);
@@ -89,6 +97,8 @@ impl GitPanel {
         header.append(&back);
         header.append(&repo_label);
         header.append(&branch_label);
+        header.append(&remotes_button);
+        header.append(&push_button);
         header.append(&refresh);
 
         let list = gtk::ListBox::new();
@@ -205,6 +215,7 @@ impl GitPanel {
             root,
             repo_label,
             branch_label,
+            push_button: push_button.clone(),
             list,
             row_files: RefCell::new(Vec::new()),
             diff_buffer,
@@ -220,6 +231,8 @@ impl GitPanel {
             cwd: RefCell::new(None),
             repo: RefCell::new(None),
             status: RefCell::new(None),
+            remotes: RefCell::new(Vec::new()),
+            last_push: RefCell::new(None),
             selected: RefCell::new(None),
             diff_cap: Cell::new(DIFF_CAP),
             diff_lines: Cell::new(0),
@@ -235,6 +248,8 @@ impl GitPanel {
         panel.connect(
             back,
             refresh,
+            remotes_button,
+            push_button,
             stage,
             unstage,
             stage_all,
@@ -249,6 +264,8 @@ impl GitPanel {
         self: &Rc<Self>,
         back: gtk::Button,
         refresh: gtk::Button,
+        remotes_button: gtk::Button,
+        push_button: gtk::Button,
         stage: gtk::Button,
         unstage: gtk::Button,
         stage_all: gtk::Button,
@@ -268,6 +285,22 @@ impl GitPanel {
             refresh.connect_clicked(move |_| {
                 if let Some(panel) = weak.upgrade() {
                     panel.refresh();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            remotes_button.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.show_remotes();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            push_button.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.push_now();
                 }
             });
         }
@@ -453,8 +486,21 @@ impl GitPanel {
         }
         self.branch_label.set_text(&label);
         self.render_files(&status);
+        let root = repo.root.clone();
         self.repo.replace(Some(repo));
         self.status.replace(Some(status));
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-remotes".into())
+            .spawn(move || {
+                let _ = tx.send(crate::remotes::list_remotes(&root));
+            });
+        listen(self.self_weak.clone(), rx, |panel, result| match result {
+            Ok(remotes) => {
+                panel.remotes.replace(remotes);
+            }
+            Err(error) => eprintln!("termust: remotes: {error}"),
+        });
     }
 
     fn render_files(&self, status: &RepoStatus) {
@@ -753,6 +799,319 @@ impl GitPanel {
 
     fn show_error(&self, message: &str) {
         self.toast.add_toast(libadwaita::Toast::new(message));
+    }
+
+    fn show_remotes(self: &Rc<Self>) {
+        let Some(repo) = self.repo.borrow().clone() else {
+            self.show_error("No hay repositorio");
+            return;
+        };
+        let dialog = libadwaita::Dialog::new();
+        dialog.set_title("Remotes");
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(12);
+        content.set_margin_end(12);
+        content.set_size_request(460, -1);
+
+        let list = gtk::ListBox::new();
+        list.set_selection_mode(gtk::SelectionMode::None);
+        for remote in self.remotes.borrow().iter() {
+            let row = gtk::ListBoxRow::new();
+            let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            text.set_hexpand(true);
+            let name = gtk::Label::new(Some(&remote.name));
+            name.set_xalign(0.0);
+            name.add_css_class("heading");
+            let url = gtk::Label::new(Some(if remote.push_url.is_empty() {
+                &remote.fetch_url
+            } else {
+                &remote.push_url
+            }));
+            url.set_xalign(0.0);
+            url.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+            url.add_css_class("dim-label");
+            url.add_css_class("caption");
+            text.append(&name);
+            text.append(&url);
+            line.append(&text);
+            let remove = gtk::Button::from_icon_name("user-trash-symbolic");
+            remove.add_css_class("flat");
+            remove.set_tooltip_text(Some("Eliminar remoto"));
+            let repo_root = repo.root.clone();
+            let name_value = remote.name.clone();
+            let weak = self.self_weak.clone();
+            let dialog_clone = dialog.clone();
+            remove.connect_clicked(move |_| {
+                match crate::remotes::remove_remote(&repo_root, &name_value) {
+                    Ok(()) => {
+                        dialog_clone.close();
+                        if let Some(panel) = weak.upgrade() {
+                            panel.refresh();
+                        }
+                    }
+                    Err(error) => eprintln!("termust: remoto: {error}"),
+                }
+            });
+            line.append(&remove);
+            row.set_child(Some(&line));
+            list.append(&row);
+        }
+        if self.remotes.borrow().is_empty() {
+            let label = gtk::Label::new(Some("Sin remotos"));
+            label.add_css_class("dim-label");
+            list.append(&label);
+        }
+        let scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .min_content_height(100)
+            .max_content_height(220)
+            .child(&list)
+            .build();
+        content.append(&scroller);
+
+        let name = gtk::Entry::new();
+        name.set_placeholder_text(Some("Nombre (origin)"));
+        let url = gtk::Entry::new();
+        url.set_placeholder_text(Some("https://host/repo.git o git@host:repo.git"));
+        url.set_hexpand(true);
+        let add = gtk::Button::with_label("Agregar");
+        add.add_css_class("suggested-action");
+        let form = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        form.append(&name);
+        form.append(&url);
+        form.append(&add);
+        content.append(&form);
+        {
+            let repo_root = repo.root.clone();
+            let weak = self.self_weak.clone();
+            let dialog_clone = dialog.clone();
+            let name = name.clone();
+            let url = url.clone();
+            let toast = self.toast.clone();
+            add.connect_clicked(move |_| {
+                let name_value = name.text().trim().to_string();
+                let url_value = url.text().trim().to_string();
+                match crate::remotes::add_remote(&repo_root, &name_value, &url_value) {
+                    Ok(()) => {
+                        dialog_clone.close();
+                        if let Some(panel) = weak.upgrade() {
+                            panel.refresh();
+                        }
+                    }
+                    Err(error) => {
+                        toast.add_toast(libadwaita::Toast::new(&error));
+                    }
+                }
+            });
+        }
+        dialog.set_child(Some(&content));
+        dialog.present(Some(&self.root));
+    }
+
+    fn push_now(self: &Rc<Self>) {
+        let Some(repo) = self.repo.borrow().clone() else {
+            self.show_error("No hay repositorio");
+            return;
+        };
+        let (branch, detached) = self
+            .status
+            .borrow()
+            .as_ref()
+            .map(|status| (status.branch.head.clone(), status.branch.detached))
+            .unwrap_or_default();
+        if branch.is_empty() || detached {
+            self.show_error("No hay una rama actual para pushear");
+            return;
+        }
+        let remotes = self.remotes.borrow().clone();
+        let Some(remote) = remotes
+            .iter()
+            .find(|remote| remote.name == "origin")
+            .or_else(|| remotes.first())
+            .cloned()
+        else {
+            self.show_error("No hay remotos configurados");
+            return;
+        };
+        let url = if remote.push_url.is_empty() {
+            remote.fetch_url.clone()
+        } else {
+            remote.push_url.clone()
+        };
+        let spec = match parse_remote_url(&url) {
+            Ok(spec) => spec,
+            Err(error) => {
+                self.show_error(&error.to_string());
+                return;
+            }
+        };
+        if spec.transport == Transport::Https {
+            let origin = spec.origin.clone();
+            match crate::remotes::load_credentials(&origin) {
+                Ok(Some((username, secret))) => {
+                    self.start_push(
+                        repo.root,
+                        remote.name,
+                        branch,
+                        spec.transport,
+                        Some((username, secret)),
+                    );
+                }
+                Ok(None) => {
+                    self.ask_https(origin, repo.root, remote.name, branch);
+                }
+                Err(error) => self.show_error(&error),
+            }
+        } else {
+            self.start_push(repo.root, remote.name, branch, spec.transport, None);
+        }
+    }
+
+    fn ask_https(
+        self: &Rc<Self>,
+        origin: String,
+        repo_root: PathBuf,
+        remote: String,
+        branch: String,
+    ) {
+        let username = gtk::Entry::new();
+        username.set_placeholder_text(Some("Usuario"));
+        let password = gtk::PasswordEntry::new();
+        password.set_placeholder_text(Some("Token o contraseña"));
+        password.set_show_peek_icon(true);
+        let box_ = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        box_.append(&username);
+        box_.append(&password);
+        let dialog = libadwaita::AlertDialog::builder()
+            .title("Credenciales HTTPS")
+            .body(format!("Se guardarán cifradas en el vault para {origin}."))
+            .extra_child(&box_)
+            .build();
+        dialog.add_response("cancel", "Cancelar");
+        dialog.add_response("save", "Guardar y pushear");
+        dialog.set_response_appearance("save", libadwaita::ResponseAppearance::Suggested);
+        let weak = self.self_weak.clone();
+        let toast = self.toast.clone();
+        dialog.connect_response(None, move |_, response| {
+            if response != "save" {
+                return;
+            }
+            let Some(panel) = weak.upgrade() else {
+                return;
+            };
+            let user = username.text().to_string();
+            let pass = password.text().to_string();
+            if user.trim().is_empty() || pass.is_empty() {
+                toast.add_toast(libadwaita::Toast::new("Usuario y token son obligatorios"));
+                return;
+            }
+            match crate::remotes::save_credentials(&origin, &user, pass.as_bytes()) {
+                Ok(()) => match crate::remotes::load_credentials(&origin) {
+                    Ok(Some(credentials)) => panel.start_push(
+                        repo_root.clone(),
+                        remote.clone(),
+                        branch.clone(),
+                        Transport::Https,
+                        Some(credentials),
+                    ),
+                    Ok(None) => {}
+                    Err(error) => panel.show_error(&error),
+                },
+                Err(error) => panel.show_error(&error),
+            }
+        });
+        dialog.present(Some(&self.root));
+    }
+
+    fn start_push(
+        self: &Rc<Self>,
+        repo_root: PathBuf,
+        remote: String,
+        branch: String,
+        transport: Transport,
+        credentials: Option<(String, termust_vault::Secret)>,
+    ) {
+        if self.busy.get() {
+            return;
+        }
+        self.set_busy(true);
+        self.push_button.set_sensitive(false);
+        self.last_push.replace(None);
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-push".into())
+            .spawn(move || {
+                let _ = tx.send(crate::remotes::push(
+                    &repo_root,
+                    &remote,
+                    &branch,
+                    transport,
+                    credentials,
+                ));
+            });
+        listen(self.self_weak.clone(), rx, |panel, result| {
+            panel.set_busy(false);
+            panel.push_button.set_sensitive(true);
+            match &result {
+                Ok(message) => {
+                    panel.toast.add_toast(libadwaita::Toast::new(message));
+                    panel.refresh();
+                }
+                Err(error) => panel.show_error(error),
+            }
+            panel.last_push.replace(Some(result));
+        });
+    }
+
+    pub fn push_now_for_test(self: &Rc<Self>) {
+        self.push_now();
+    }
+
+    pub fn push_result(&self) -> Option<Result<String, String>> {
+        self.last_push.borrow().clone()
+    }
+
+    pub fn remotes_count(&self) -> usize {
+        self.remotes.borrow().len()
+    }
+
+    pub fn remote_names(&self) -> Vec<String> {
+        self.remotes
+            .borrow()
+            .iter()
+            .map(|remote| remote.name.clone())
+            .collect()
+    }
+
+    pub fn add_remote_for_test(self: &Rc<Self>, name: &str, url: &str) -> bool {
+        let Some(repo) = self.repo.borrow().clone() else {
+            return false;
+        };
+        if crate::remotes::add_remote(&repo.root, name, url).is_ok() {
+            if let Ok(remotes) = crate::remotes::list_remotes(&repo.root) {
+                self.remotes.replace(remotes);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_remote_for_test(self: &Rc<Self>, name: &str) -> bool {
+        let Some(repo) = self.repo.borrow().clone() else {
+            return false;
+        };
+        if crate::remotes::remove_remote(&repo.root, name).is_ok() {
+            if let Ok(remotes) = crate::remotes::list_remotes(&repo.root) {
+                self.remotes.replace(remotes);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     // Getters para hooks E2E.

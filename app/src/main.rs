@@ -3,6 +3,7 @@ mod files;
 mod git_panel;
 mod history;
 mod preferences;
+mod remotes;
 mod tab_sidebar;
 mod tabs;
 mod viewer;
@@ -1865,6 +1866,142 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
             glib::ControlFlow::Continue
         });
+    }
+
+    if std::env::var_os("TERMUST_GIT_REMOTE_TEST").is_some() {
+        let git_panel = git_panel.clone();
+        let app = app.clone();
+        let step = Rc::new(Cell::new(0usize));
+        let fixture = std::env::var_os("TERMUST_GIT_DIR").map(PathBuf::from);
+        let bare = std::env::var_os("TERMUST_GIT_BARE").map(PathBuf::from);
+        let mut failed = false;
+        glib::timeout_add_local(Duration::from_millis(700), move || {
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-git-remote: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            let current = step.get();
+            step.set(current + 1);
+            match current {
+                0 => {
+                    if let Some(dir) = &fixture {
+                        git_panel.open(dir);
+                    } else {
+                        check("TERMUST_GIT_DIR definido", false);
+                    }
+                }
+                1 => {
+                    check("panel abierto", git_panel.is_open());
+                    check("un remoto", git_panel.remotes_count() == 1);
+                    check(
+                        "origin presente",
+                        git_panel.remote_names().iter().any(|name| name == "origin"),
+                    );
+                    check(
+                        "agregar remoto válido",
+                        git_panel.add_remote_for_test("test", "https://example.com/r.git"),
+                    );
+                    check(
+                        "rechaza ext::",
+                        !git_panel.add_remote_for_test("bad", "ext::sh -c whoami"),
+                    );
+                }
+                2 => {
+                    check("dos remotos", git_panel.remotes_count() == 2);
+                    check("quitar remoto", git_panel.remove_remote_for_test("test"));
+                }
+                3 => {
+                    check("un remoto tras quitar", git_panel.remotes_count() == 1);
+                    git_panel.push_now_for_test();
+                }
+                4 => {
+                    match git_panel.push_result() {
+                        Some(Ok(message)) => check(&format!("push ok: {message}"), true),
+                        Some(Err(error)) => check(&format!("push falló: {error}"), false),
+                        None => check("push sin resultado", false),
+                    }
+                    if let Some(bare) = &bare {
+                        let output = termust_host_exec::host_command(
+                            "git",
+                            &[
+                                std::ffi::OsString::from(format!("--git-dir={}", bare.display())),
+                                std::ffi::OsString::from("rev-parse"),
+                                std::ffi::OsString::from("main"),
+                            ],
+                            None,
+                        )
+                        .output();
+                        check(
+                            "commit en el repo bare",
+                            output
+                                .map(|output| output.status.success())
+                                .unwrap_or(false),
+                        );
+                    }
+                    git_panel.close();
+                    eprintln!("termust-git-remote: {}", if failed { "FAIL" } else { "ok" });
+                    if failed {
+                        std::process::exit(1);
+                    }
+                    app.quit();
+                    return glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
+    if std::env::var_os("TERMUST_VAULT_TEST").is_some() {
+        let mut failed = false;
+        let mut check = |label: &str, ok: bool| {
+            eprintln!(
+                "termust-vault-test: {label} {}",
+                if ok { "ok" } else { "FAIL" }
+            );
+            failed |= !ok;
+        };
+        match remotes::save_credentials("https://example.com", "alice", b"TOKEN-E2E-42") {
+            Ok(()) => check("guardar credencial", true),
+            Err(error) => {
+                eprintln!("termust-vault-test: {error}");
+                check("guardar credencial", false);
+            }
+        }
+        match remotes::load_credentials("https://example.com") {
+            Ok(Some((user, secret))) => check(
+                "leer credencial",
+                user == "alice" && secret.as_str().ok() == Some("TOKEN-E2E-42"),
+            ),
+            _ => check("leer credencial", false),
+        }
+        check(
+            "origen ajeno no recibe la credencial",
+            matches!(
+                remotes::load_credentials("https://example.com.evil.tld"),
+                Ok(None)
+            ),
+        );
+        if let Ok(path) = remotes::vault_path() {
+            let bytes = std::fs::read(&path).unwrap_or_default();
+            check(
+                "sin texto plano en el archivo",
+                !bytes
+                    .windows(b"TOKEN-E2E-42".len())
+                    .any(|window| window == b"TOKEN-E2E-42"),
+            );
+        } else {
+            check("ruta del vault", false);
+        }
+        eprintln!("termust-vault-test: {}", if failed { "FAIL" } else { "ok" });
+        if failed {
+            std::process::exit(1);
+        }
+        app.quit();
+        return window;
     }
 
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
