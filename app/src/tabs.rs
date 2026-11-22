@@ -96,10 +96,13 @@ impl TabManager {
     }
 
     fn spawn_view(&self, cwd: &Path) -> Result<TerminalView, String> {
+        let host_pty = termust_host_exec::host_pty();
         let command = shell_command(
             &self.shell,
             &self.integration,
             termust_host_exec::is_flatpak(),
+            Some(cwd),
+            host_pty.as_ref(),
         );
         let size = Size::new(80, 24);
         let handle = self
@@ -256,6 +259,9 @@ impl TabManager {
                 let page = page.clone();
                 glib::idle_add_local_once(move || {
                     let mut mgr = manager.borrow_mut();
+                    if let Some(entry) = mgr.entries.iter().find(|e| e.page == page) {
+                        entry.view.kill();
+                    }
                     mgr.entries.retain(|e| e.page != page);
                     if mgr.entries.is_empty() {
                         let home = mgr.home.clone();

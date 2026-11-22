@@ -103,6 +103,14 @@ impl PtySpawner for UnixPtySpawner {
             if flags >= 0 {
                 libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK);
             }
+            // El master no debe heredarse al hijo: si el hijo lo conserva,
+            // cerrar la pestaña no produce HUP y quedan procesos vivos.
+            for fd in [master, slave] {
+                let fd_flags = libc::fcntl(fd, libc::F_GETFD);
+                if fd_flags >= 0 {
+                    libc::fcntl(fd, libc::F_SETFD, fd_flags | libc::FD_CLOEXEC);
+                }
+            }
         }
         let master_file = unsafe { File::from_raw_fd(master as RawFd) };
         let slave_file = unsafe { File::from_raw_fd(slave as RawFd) };
@@ -485,6 +493,20 @@ mod tests {
         let mut handle = spawner.spawn(spec(&["/bin/sh", "-c", "exit 7"])).unwrap();
         let (_, code) = collect(&mut handle, true);
         assert_eq!(code, Some(7));
+    }
+
+    #[test]
+    fn child_does_not_inherit_the_master_fd() {
+        let dir = std::env::temp_dir().join(format!("termust-fds-{}", std::process::id()));
+        let file = dir.join("fds.txt");
+        let _ = std::fs::create_dir_all(&dir);
+        let script = format!("ls -l /proc/self/fd > {} 2>&1", file.display());
+        let spawner = UnixPtySpawner::new().unwrap();
+        let mut handle = spawner.spawn(spec(&["/bin/sh", "-c", &script])).unwrap();
+        let _ = collect(&mut handle, true);
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!text.contains("ptmx"), "fds heredados:\n{text}");
     }
 
     #[test]

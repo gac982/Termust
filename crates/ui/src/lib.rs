@@ -18,6 +18,7 @@ use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRende
 pub struct TerminalView {
     area: gtk::DrawingArea,
     engine: Rc<RefCell<Box<dyn TerminalEngine>>>,
+    session: Rc<RefCell<Box<dyn PtySession>>>,
     theme: Rc<RefCell<Theme>>,
     font: Rc<RefCell<FontSpec>>,
     selection: Rc<Cell<Option<Selection>>>,
@@ -378,6 +379,7 @@ impl TerminalView {
         Self {
             area,
             engine,
+            session,
             theme,
             font,
             selection,
@@ -418,6 +420,12 @@ impl TerminalView {
     pub fn clear_selection(&self) {
         self.selection.set(None);
         self.area.queue_draw();
+    }
+
+    /// Termina el PTY. Se llama al desmontar la página; no esperar a que GTK
+    /// destruya el widget, porque la página puede mantener una referencia.
+    pub fn kill(&self) {
+        let _ = self.session.borrow_mut().kill();
     }
 }
 

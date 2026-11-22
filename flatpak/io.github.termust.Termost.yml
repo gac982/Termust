@@ -31,6 +31,7 @@ modules:
       - cargo --offline fetch --manifest-path Cargo.toml
       - cargo --offline build --release --locked
       - install -Dm755 target/release/termust /app/bin/termust
+      - install -Dm755 target/release/termust-host-pty /app/libexec/termust-host-pty
       - install -Dm644 data/${APP_ID}.desktop /app/share/applications/${APP_ID}.desktop
       - install -Dm644 data/${APP_ID}.metainfo.xml /app/share/metainfo/${APP_ID}.metainfo.xml
       - install -Dm644 data/${APP_ID}.gschema.xml /app/share/glib-2.0/schemas/${APP_ID}.gschema.xml

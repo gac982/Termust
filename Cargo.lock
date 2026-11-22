@@ -987,6 +987,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "termust-host-pty"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "termust-pty-unix"
 version = "0.1.0"
 dependencies = [
