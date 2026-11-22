@@ -12,7 +12,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Duration;
 use termust_core::mouse::{encode_mouse, MouseButton, MouseEventKind, MouseMods};
 use termust_core::pty::{PtyEvent, PtySession};
-use termust_core::terminal::{Modes, Size, Snapshot, TerminalEngine};
+use termust_core::terminal::{Modes, PromptState, Size, Snapshot, TerminalEngine};
 use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRenderer, Theme};
 
 pub struct TerminalView {
@@ -420,6 +420,21 @@ impl TerminalView {
     pub fn clear_selection(&self) {
         self.selection.set(None);
         self.area.queue_draw();
+    }
+
+    pub fn has_foreground_job(&self) -> bool {
+        // OSC 133 sí cruza el PTY del sandbox; tcgetpgrp solo ve el grupo
+        // del lanzador cuando el shell vive en el host.
+        let running = matches!(
+            self.engine.borrow().prompt().state,
+            PromptState::CommandRunning
+        );
+        running || self.session.borrow().has_foreground_job()
+    }
+
+    /// Entrada sintética para tests/automatización (no es un atajo de usuario).
+    pub fn write_input(&self, bytes: &[u8]) {
+        let _ = self.session.borrow_mut().write(bytes);
     }
 
     /// Termina el PTY. Se llama al desmontar la página; no esperar a que GTK
