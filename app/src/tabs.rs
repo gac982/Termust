@@ -5,6 +5,7 @@ use libadwaita::{ApplicationWindow, ResponseAppearance, TabBar, TabPage, TabView
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 use termust_core::pty::{PtySpawner, SpawnSpec};
 use termust_core::tabs::{Activity, PaneTree, Tab, TabId};
 use termust_core::terminal::Size;
@@ -292,6 +293,7 @@ impl TabManager {
         };
         let entry = gtk::Entry::new();
         entry.set_text(&current);
+        entry.set_activates_default(true);
         let dialog = libadwaita::AlertDialog::builder()
             .title("Rename tab")
             .extra_child(&entry)
@@ -299,6 +301,19 @@ impl TabManager {
         dialog.add_response("cancel", "Cancel");
         dialog.add_response("rename", "Rename");
         dialog.set_response_appearance("rename", ResponseAppearance::Suggested);
+        dialog.set_default_response(Some("rename"));
+        {
+            let entry = entry.clone();
+            dialog.connect_map(move |_| {
+                let entry = entry.clone();
+                // El diálogo enfoca sus botones al mapear; el entry gana
+                // el foco en el siguiente tick.
+                glib::timeout_add_local_once(Duration::from_millis(50), move || {
+                    entry.grab_focus();
+                    entry.select_region(0, -1);
+                });
+            });
+        }
         let manager = manager.clone();
         dialog.connect_response(None, move |_, response| {
             if response == "rename" {
