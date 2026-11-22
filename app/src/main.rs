@@ -1,5 +1,6 @@
 mod appearance;
 mod files;
+mod git_panel;
 mod history;
 mod preferences;
 mod tab_sidebar;
@@ -7,6 +8,7 @@ mod tabs;
 mod viewer;
 
 use appearance::{Appearance, AUTO_THEME};
+use git_panel::GitPanel;
 use gtk::gdk;
 use gtk::glib;
 use gtk4 as gtk;
@@ -270,9 +272,15 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .active(vertical_visible)
         .build();
     tabs_button.add_css_class("flat");
+    let git_button = gtk::ToggleButton::builder()
+        .label("Git")
+        .tooltip_text("Git (Ctrl+Shift+G)")
+        .build();
+    git_button.add_css_class("flat");
     header.pack_start(&files_button);
     header.pack_start(&new_tab);
     header.pack_start(&tabs_button);
+    header.pack_start(&git_button);
     let tab_bar = manager.borrow().tab_bar().clone();
     tab_bar.set_hexpand(true);
     tab_bar.set_halign(gtk::Align::Fill);
@@ -295,10 +303,34 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
         });
     }
+    let git_panel = GitPanel::new(toast_overlay.clone());
+    {
+        let git_panel = git_panel.clone();
+        let git_button = git_button.clone();
+        let manager = Rc::downgrade(&manager);
+        git_panel.set_on_close(move || {
+            if git_button.is_active() {
+                git_button.set_active(false);
+            }
+            if let Some(manager) = manager.upgrade() {
+                if let Ok(manager) = manager.try_borrow() {
+                    manager.focus_active();
+                }
+            }
+        });
+    }
     let file_panel = files::FilePanel::new(&home, toast_overlay.clone());
     {
         let viewer = viewer.clone();
-        file_panel.set_open_handler(move |path| viewer.open_file(&path));
+        let git_panel = git_panel.clone();
+        let git_button = git_button.clone();
+        file_panel.set_open_handler(move |path| {
+            git_panel.close();
+            if git_button.is_active() {
+                git_button.set_active(false);
+            }
+            viewer.open_file(&path);
+        });
     }
     if files_visible {
         file_panel.activate();
@@ -327,6 +359,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     viewer.widget().set_halign(gtk::Align::Fill);
     viewer.widget().set_valign(gtk::Align::Fill);
     overlay.add_overlay(viewer.widget());
+    git_panel.widget().set_halign(gtk::Align::Fill);
+    git_panel.widget().set_valign(gtk::Align::Fill);
+    overlay.add_overlay(git_panel.widget());
     toolbar.set_content(Some(&overlay));
 
     {
@@ -357,6 +392,25 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             if let Some(settings) = &settings {
                 let _ = settings.set_boolean("vertical-tabs", active);
             }
+        });
+    }
+    {
+        let viewer = viewer.clone();
+        let git_panel = git_panel.clone();
+        let manager = manager.clone();
+        let home = home.clone();
+        git_button.connect_toggled(move |button| {
+            if !button.is_active() {
+                git_panel.close();
+                return;
+            }
+            viewer.close();
+            let cwd = manager
+                .borrow()
+                .active_cwd()
+                .filter(|cwd| cwd.is_dir())
+                .unwrap_or_else(|| home.clone());
+            git_panel.open(&cwd);
         });
     }
 
@@ -518,6 +572,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let files_button = files_button.clone();
         let tabs_button = tabs_button.clone();
         let viewer = viewer.clone();
+        let git_button = git_button.clone();
+        let git_panel = git_panel.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
@@ -534,6 +590,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         .unwrap_or(false);
                 if search {
                     viewer.toggle_search();
+                    return glib::Propagation::Stop;
+                }
+                return glib::Propagation::Proceed;
+            }
+            if git_panel.is_open() {
+                if keyval == gdk::Key::Escape {
+                    git_button.set_active(false);
                     return glib::Propagation::Stop;
                 }
                 return glib::Propagation::Proceed;
@@ -579,6 +642,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
             if action == Action::ToggleVerticalTabs {
                 tabs_button.set_active(!tabs_button.is_active());
+                return glib::Propagation::Stop;
+            }
+            if action == Action::ToggleGit {
+                git_button.set_active(!git_button.is_active());
                 return glib::Propagation::Stop;
             }
             if action == Action::RenameTab {
@@ -651,7 +718,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let file_panel = file_panel.clone();
         let files_split = files_split.clone();
         let tab_sidebar = tab_sidebar.clone();
+        let git_panel = git_panel.clone();
         let last_followed: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
+        let last_git_cwd: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
             tab_sidebar.refresh();
@@ -671,6 +740,16 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 }
             } else {
                 *last_followed.borrow_mut() = None;
+            }
+            if git_panel.is_open() {
+                if let Some(cwd) = manager.borrow().active_cwd() {
+                    if cwd.is_dir() && last_git_cwd.borrow().as_ref() != Some(&cwd) {
+                        *last_git_cwd.borrow_mut() = Some(cwd.clone());
+                        git_panel.open(&cwd);
+                    }
+                }
+            } else {
+                *last_git_cwd.borrow_mut() = None;
             }
             let records = manager.borrow().take_history_records();
             if !records.is_empty() {
@@ -1671,6 +1750,120 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     app3.quit();
                 });
             });
+        });
+    }
+
+    if std::env::var_os("TERMUST_GIT_TEST").is_some() {
+        let git_panel = git_panel.clone();
+        let app = app.clone();
+        let step = Rc::new(Cell::new(0usize));
+        let fixture = std::env::var_os("TERMUST_GIT_DIR").map(PathBuf::from);
+        let mut failed = false;
+        glib::timeout_add_local(Duration::from_millis(700), move || {
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-git-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            let current = step.get();
+            step.set(current + 1);
+            match current {
+                0 => {
+                    if let Some(dir) = &fixture {
+                        git_panel.open(dir);
+                    } else {
+                        check("TERMUST_GIT_DIR definido", false);
+                    }
+                }
+                1 => {
+                    check("panel abierto", git_panel.is_open());
+                    check(
+                        "repo descubierto",
+                        fixture
+                            .as_ref()
+                            .and_then(|dir| std::fs::canonicalize(dir).ok())
+                            .zip(
+                                git_panel
+                                    .repo_path()
+                                    .and_then(|p| std::fs::canonicalize(p).ok()),
+                            )
+                            .map(|(a, b)| a == b)
+                            .unwrap_or(false),
+                    );
+                    check("rama main", git_panel.branch() == "main");
+                    check("seis cambios", git_panel.file_count() == 6);
+                    check("modificado", git_panel.has_file("mod.txt"));
+                    check("sin preparar", git_panel.has_file("nuevo.txt"));
+                    check(
+                        "rename",
+                        git_panel.kind_of("renombrado.txt")
+                            == Some(termust_git_local::ChangeKind::Renamed),
+                    );
+                    check("unicode", git_panel.has_file("ñandú file.txt"));
+                    check("select binario", git_panel.select_path("bin.dat"));
+                }
+                2 => {
+                    check("diff binario", git_panel.diff_is_binary());
+                    check("select grande", git_panel.select_path("big.txt"));
+                    git_panel.set_staged_view(true);
+                }
+                3 => {
+                    check("diff cap 5k", git_panel.diff_truncated());
+                    git_panel.load_full_diff_now();
+                }
+                4 => {
+                    check(
+                        "cargar más",
+                        !git_panel.diff_truncated() && git_panel.diff_line_count() > 5_000,
+                    );
+                    git_panel.set_staged_view(false);
+                    check("select mod", git_panel.select_path("mod.txt"));
+                    git_panel.stage_selected_now();
+                }
+                5 => {
+                    check(
+                        "stage aplicado",
+                        git_panel.index_status_of("mod.txt") == Some('M'),
+                    );
+                    git_panel.unstage_selected_now();
+                }
+                6 => {
+                    check(
+                        "unstage aplicado",
+                        git_panel.index_status_of("mod.txt") == Some('.'),
+                    );
+                    check("select mod", git_panel.select_path("mod.txt"));
+                    git_panel.stage_selected_now();
+                }
+                7 => {
+                    check(
+                        "stage previo al commit",
+                        git_panel.index_status_of("mod.txt") == Some('M'),
+                    );
+                    git_panel.set_message("test: commit desde Termust", "");
+                    git_panel.commit_now();
+                }
+                8 => {
+                    check(
+                        "commit aplicado",
+                        !git_panel.has_file("mod.txt") && !git_panel.has_file("big.txt"),
+                    );
+                    check("sin preparar sigue", git_panel.has_file("nuevo.txt"));
+                    check("rama tras commit", git_panel.branch() == "main");
+                    git_panel.close();
+                    check("panel cerrado", !git_panel.is_open());
+                    eprintln!("termust-git-test: {}", if failed { "FAIL" } else { "ok" });
+                    if failed {
+                        std::process::exit(1);
+                    }
+                    app.quit();
+                    return glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            glib::ControlFlow::Continue
         });
     }
 

@@ -998,6 +998,7 @@ dependencies = [
  "pangocairo",
  "termust-core",
  "termust-fs-local",
+ "termust-git-local",
  "termust-host-exec",
  "termust-pty-unix",
  "termust-render-cairo",
