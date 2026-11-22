@@ -97,3 +97,28 @@ window.termust-transparent paned > separator {
 .termust-viewer textview text {
   font-family: monospace;
 }
+
+/* Panel de git. */
+.termust-git {
+  background-color: @window_bg_color;
+}
+
+.termust-git textview {
+  background-color: @view_bg_color;
+}
+
+.termust-git .termust-git-added {
+  color: #26a269;
+}
+
+.termust-git .termust-git-modified {
+  color: #1c71d8;
+}
+
+.termust-git .termust-git-deleted {
+  color: #c01c28;
+}
+
+.termust-git .termust-git-conflict {
+  color: #e5a50a;
+}

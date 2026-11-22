@@ -21,6 +21,7 @@ termust-store.workspace = true
 termust-text-render.workspace = true
 pangocairo.workspace = true
 termust-fs-local.workspace = true
+termust-git-local.workspace = true
 termust-syntax.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true

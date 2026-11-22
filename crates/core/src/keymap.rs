@@ -80,6 +80,7 @@ pub enum Action {
     Preferences,
     ToggleFiles,
     ToggleVerticalTabs,
+    ToggleGit,
     Fullscreen,
     Shortcuts,
     RenameTab,
@@ -96,6 +97,7 @@ pub struct KeyConfig {
     pub zoom: bool,
     pub files_panel: bool,
     pub vertical_tabs: bool,
+    pub git_panel: bool,
 }
 
 impl Default for KeyConfig {
@@ -107,6 +109,7 @@ impl Default for KeyConfig {
             zoom: true,
             files_panel: true,
             vertical_tabs: true,
+            git_panel: true,
         }
     }
 }
@@ -154,6 +157,9 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
             }
             Key::Char(c) if c.eq_ignore_ascii_case(&'l') && cfg.vertical_tabs => {
                 return Some(Action::ToggleVerticalTabs)
+            }
+            Key::Char(c) if c.eq_ignore_ascii_case(&'g') && cfg.git_panel => {
+                return Some(Action::ToggleGit)
             }
             Key::PageUp if cfg.move_tabs => return Some(Action::MoveTabLeft),
             Key::PageDown if cfg.move_tabs => return Some(Action::MoveTabRight),
@@ -359,6 +365,26 @@ mod tests {
         assert_eq!(
             resolve_shortcut(
                 KeyEvent::new(Key::Char('l'), Mods::ctrl_shift()),
+                Focus::Terminal,
+                &cfg
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_g_toggles_git_and_can_be_disabled() {
+        assert_eq!(
+            press(Key::Char('G'), Mods::ctrl_shift()),
+            Some(Action::ToggleGit)
+        );
+        let cfg = KeyConfig {
+            git_panel: false,
+            ..KeyConfig::default()
+        };
+        assert_eq!(
+            resolve_shortcut(
+                KeyEvent::new(Key::Char('g'), Mods::ctrl_shift()),
                 Focus::Terminal,
                 &cfg
             ),

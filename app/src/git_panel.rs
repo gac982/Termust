@@ -1,0 +1,916 @@
+//! Panel de git local: status, staging, diff y commit.
+
+use gtk::glib;
+use gtk4 as gtk;
+use libadwaita::prelude::*;
+use std::cell::{Cell, RefCell};
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
+use std::sync::mpsc;
+use std::sync::Arc;
+use std::time::Duration;
+use termust_git_local::{
+    commit_hint, split_staged, ChangeKind, Diff, DiffLineKind, Git, GitError, GitRunner, Repo,
+    RepoStatus,
+};
+
+const DIFF_CAP: usize = 5_000;
+const DIFF_CAP_LARGE: usize = 20_000;
+
+struct HostGitRunner;
+
+impl GitRunner for HostGitRunner {
+    fn run(
+        &self,
+        cwd: &Path,
+        args: &[std::ffi::OsString],
+    ) -> Result<std::process::Output, GitError> {
+        termust_host_exec::host_command("git", args, Some(cwd))
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|error| GitError::Io(format!("no se pudo ejecutar git: {error}")))
+    }
+}
+
+pub struct GitPanel {
+    root: gtk::Box,
+    repo_label: gtk::Label,
+    branch_label: gtk::Label,
+    list: gtk::ListBox,
+    row_files: RefCell<Vec<Option<usize>>>,
+    diff_buffer: gtk::TextBuffer,
+    diff_path: gtk::Label,
+    staged_toggle: gtk::ToggleButton,
+    load_more: gtk::Button,
+    subject: gtk::Entry,
+    body: gtk::Entry,
+    hint: gtk::Label,
+    commit_button: gtk::Button,
+    toast: libadwaita::ToastOverlay,
+    git: Git,
+    cwd: RefCell<Option<PathBuf>>,
+    repo: RefCell<Option<Repo>>,
+    status: RefCell<Option<RepoStatus>>,
+    selected: RefCell<Option<PathBuf>>,
+    diff_cap: Cell<usize>,
+    diff_lines: Cell<usize>,
+    diff_binary: Cell<bool>,
+    diff_truncated: Cell<bool>,
+    diff_generation: Cell<u64>,
+    repo_generation: Cell<u64>,
+    busy: Cell<bool>,
+    visible: Cell<bool>,
+    on_close: RefCell<Option<Rc<dyn Fn()>>>,
+    self_weak: Weak<Self>,
+}
+
+impl GitPanel {
+    pub fn new(toast: libadwaita::ToastOverlay) -> Rc<Self> {
+        let back = gtk::Button::from_icon_name("go-previous-symbolic");
+        back.add_css_class("flat");
+        back.set_tooltip_text(Some("Volver al terminal"));
+        let repo_label = gtk::Label::new(None);
+        repo_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        repo_label.set_xalign(0.0);
+        repo_label.set_hexpand(true);
+        repo_label.add_css_class("heading");
+        let branch_label = gtk::Label::new(None);
+        branch_label.add_css_class("dim-label");
+        branch_label.add_css_class("caption");
+        let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+        refresh.add_css_class("flat");
+        refresh.set_tooltip_text(Some("Actualizar"));
+
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header.set_margin_top(6);
+        header.set_margin_bottom(6);
+        header.set_margin_start(8);
+        header.set_margin_end(8);
+        header.append(&back);
+        header.append(&repo_label);
+        header.append(&branch_label);
+        header.append(&refresh);
+
+        let list = gtk::ListBox::new();
+        list.set_selection_mode(gtk::SelectionMode::Single);
+        list.set_activate_on_single_click(true);
+        let list_scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&list)
+            .build();
+
+        let stage = gtk::Button::with_label("Stage");
+        stage.add_css_class("flat");
+        let unstage = gtk::Button::with_label("Unstage");
+        unstage.add_css_class("flat");
+        let stage_all = gtk::Button::with_label("Stage all");
+        stage_all.add_css_class("flat");
+        let unstage_all = gtk::Button::with_label("Unstage all");
+        unstage_all.add_css_class("flat");
+        let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        actions.set_margin_top(4);
+        actions.set_margin_bottom(4);
+        actions.set_margin_start(6);
+        actions.set_margin_end(6);
+        actions.append(&stage);
+        actions.append(&unstage);
+        actions.append(&stage_all);
+        actions.append(&unstage_all);
+
+        let left = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        left.set_size_request(300, -1);
+        left.append(&list_scroller);
+        left.append(&actions);
+
+        let diff_path = gtk::Label::new(None);
+        diff_path.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        diff_path.set_xalign(0.0);
+        diff_path.set_hexpand(true);
+        diff_path.add_css_class("caption");
+        let staged_toggle = gtk::ToggleButton::with_label("Staged");
+        staged_toggle.add_css_class("flat");
+        staged_toggle.set_tooltip_text(Some("Ver el diff del index"));
+        let load_more = gtk::Button::with_label("Cargar más");
+        load_more.add_css_class("flat");
+        load_more.set_visible(false);
+        let diff_header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        diff_header.set_margin_top(6);
+        diff_header.set_margin_bottom(6);
+        diff_header.set_margin_start(8);
+        diff_header.set_margin_end(8);
+        diff_header.append(&diff_path);
+        diff_header.append(&staged_toggle);
+        diff_header.append(&load_more);
+
+        let diff_buffer = gtk::TextBuffer::new(None);
+        let diff_view = gtk::TextView::with_buffer(&diff_buffer);
+        diff_view.set_editable(false);
+        diff_view.set_cursor_visible(false);
+        diff_view.set_monospace(true);
+        diff_view.set_wrap_mode(gtk::WrapMode::None);
+        diff_view.set_left_margin(8);
+        diff_view.set_top_margin(6);
+        let diff_scroller = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Automatic)
+            .vexpand(true)
+            .child(&diff_view)
+            .build();
+        create_diff_tags(&diff_buffer);
+
+        let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        right.append(&diff_header);
+        right.append(&diff_scroller);
+
+        let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
+        paned.set_start_child(Some(&left));
+        paned.set_end_child(Some(&right));
+        paned.set_resize_start_child(false);
+        paned.set_shrink_start_child(false);
+        paned.set_position(300);
+        paned.set_vexpand(true);
+
+        let subject = gtk::Entry::new();
+        subject.set_placeholder_text(Some("Asunto del commit (≤50)"));
+        subject.set_hexpand(true);
+        let body = gtk::Entry::new();
+        body.set_placeholder_text(Some("Cuerpo opcional (líneas ≤72)"));
+        body.set_hexpand(true);
+        let hint = gtk::Label::new(Some("Asunto 0/50"));
+        hint.add_css_class("dim-label");
+        hint.add_css_class("caption");
+        let commit_button = gtk::Button::with_label("Commit");
+        commit_button.add_css_class("suggested-action");
+        commit_button.set_sensitive(false);
+        let commit_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
+        commit_box.set_margin_top(6);
+        commit_box.set_margin_bottom(8);
+        commit_box.set_margin_start(8);
+        commit_box.set_margin_end(8);
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        row.append(&subject);
+        row.append(&commit_button);
+        commit_box.append(&row);
+        commit_box.append(&body);
+        commit_box.append(&hint);
+
+        let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        root.add_css_class("termust-git");
+        root.append(&header);
+        root.append(&paned);
+        root.append(&commit_box);
+        root.set_visible(false);
+
+        let panel = Rc::new_cyclic(|weak: &Weak<Self>| Self {
+            root,
+            repo_label,
+            branch_label,
+            list,
+            row_files: RefCell::new(Vec::new()),
+            diff_buffer,
+            diff_path,
+            staged_toggle,
+            load_more: load_more.clone(),
+            subject,
+            body,
+            hint,
+            commit_button,
+            toast,
+            git: Git::new(Arc::new(HostGitRunner)),
+            cwd: RefCell::new(None),
+            repo: RefCell::new(None),
+            status: RefCell::new(None),
+            selected: RefCell::new(None),
+            diff_cap: Cell::new(DIFF_CAP),
+            diff_lines: Cell::new(0),
+            diff_binary: Cell::new(false),
+            diff_truncated: Cell::new(false),
+            diff_generation: Cell::new(0),
+            repo_generation: Cell::new(0),
+            busy: Cell::new(false),
+            visible: Cell::new(false),
+            on_close: RefCell::new(None),
+            self_weak: weak.clone(),
+        });
+        panel.connect(
+            back,
+            refresh,
+            stage,
+            unstage,
+            stage_all,
+            unstage_all,
+            load_more,
+        );
+        panel
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn connect(
+        self: &Rc<Self>,
+        back: gtk::Button,
+        refresh: gtk::Button,
+        stage: gtk::Button,
+        unstage: gtk::Button,
+        stage_all: gtk::Button,
+        unstage_all: gtk::Button,
+        load_more: gtk::Button,
+    ) {
+        {
+            let weak = self.self_weak.clone();
+            back.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.close();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            refresh.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.refresh();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            stage.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.stage_selected();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            unstage.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.unstage_selected();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            stage_all.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.stage_paths(&[PathBuf::from(".")]);
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            unstage_all.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.unstage_paths(&[PathBuf::from(".")]);
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            load_more.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.diff_cap.set(DIFF_CAP_LARGE);
+                    if let Some(path) = panel.selected.borrow().clone() {
+                        panel.load_diff(path, panel.staged_toggle.is_active());
+                    }
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            self.list.connect_row_selected(move |_, row| {
+                let Some(row) = row else {
+                    return;
+                };
+                if let Some(panel) = weak.upgrade() {
+                    let row_index = row.index().max(0) as usize;
+                    let file_index = panel.row_files.borrow().get(row_index).copied().flatten();
+                    let path = file_index.and_then(|index| {
+                        panel
+                            .status
+                            .borrow()
+                            .as_ref()
+                            .and_then(|status| status.files.get(index))
+                            .map(|file| file.path.clone())
+                    });
+                    if let Some(path) = path {
+                        panel.selected.replace(Some(path.clone()));
+                        panel.load_diff(path, panel.staged_toggle.is_active());
+                    }
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            self.staged_toggle.connect_toggled(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    if let Some(path) = panel.selected.borrow().clone() {
+                        panel.load_diff(path, panel.staged_toggle.is_active());
+                    }
+                }
+            });
+        }
+        for entry in [&self.subject, &self.body] {
+            let weak = self.self_weak.clone();
+            entry.connect_changed(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.update_commit_hint();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            self.commit_button.connect_clicked(move |_| {
+                if let Some(panel) = weak.upgrade() {
+                    panel.commit();
+                }
+            });
+        }
+    }
+
+    pub fn widget(&self) -> &gtk::Box {
+        &self.root
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.root.is_visible()
+    }
+
+    pub fn set_on_close(&self, callback: impl Fn() + 'static) {
+        *self.on_close.borrow_mut() = Some(Rc::new(callback));
+    }
+
+    pub fn open(self: &Rc<Self>, cwd: &Path) {
+        self.root.set_visible(true);
+        self.visible.set(true);
+        self.repo_label.set_text("…");
+        self.branch_label.set_text("");
+        self.load_repo(cwd);
+    }
+
+    pub fn close(&self) {
+        if !self.visible.replace(false) {
+            return;
+        }
+        self.root.set_visible(false);
+        if let Some(callback) = self.on_close.borrow().as_ref() {
+            callback();
+        }
+    }
+
+    pub fn refresh(self: &Rc<Self>) {
+        let cwd = self.cwd.borrow().clone();
+        if let Some(cwd) = cwd {
+            self.load_repo(&cwd);
+        }
+    }
+
+    fn load_repo(self: &Rc<Self>, cwd: &Path) {
+        self.cwd.replace(Some(cwd.to_path_buf()));
+        let generation = self.repo_generation.get() + 1;
+        self.repo_generation.set(generation);
+        let git = self.git.clone();
+        let cwd = cwd.to_path_buf();
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git".into())
+            .spawn(move || {
+                let result = git
+                    .discover(&cwd)
+                    .and_then(|repo| git.status(&repo).map(|status| (repo, status)));
+                let _ = tx.send(result);
+            });
+        listen(self.self_weak.clone(), rx, move |panel, result| {
+            if panel.repo_generation.get() != generation {
+                return;
+            }
+            match result {
+                Ok((repo, status)) => panel.apply_status(repo, status),
+                Err(error) => panel.show_error(&error.to_string()),
+            }
+        });
+    }
+
+    fn apply_status(self: &Rc<Self>, repo: Repo, status: RepoStatus) {
+        self.repo_label.set_text(&repo.root.display().to_string());
+        self.repo_label
+            .set_tooltip_text(Some(&repo.root.display().to_string()));
+        let branch = if status.branch.detached {
+            format!(
+                "detached @ {}",
+                &status.branch.head[..7.min(status.branch.head.len())]
+            )
+        } else {
+            status.branch.head.clone()
+        };
+        let mut label = branch;
+        if let Some(upstream) = &status.branch.upstream {
+            label.push_str(&format!("  ↑{upstream}"));
+        }
+        if status.branch.ahead > 0 || status.branch.behind > 0 {
+            label.push_str(&format!(
+                "  +{} −{}",
+                status.branch.ahead, status.branch.behind
+            ));
+        }
+        self.branch_label.set_text(&label);
+        self.render_files(&status);
+        self.repo.replace(Some(repo));
+        self.status.replace(Some(status));
+    }
+
+    fn render_files(&self, status: &RepoStatus) {
+        while let Some(row) = self.list.first_child() {
+            self.list.remove(&row);
+        }
+        self.row_files.borrow_mut().clear();
+        let (staged, unstaged) = split_staged(&status.files);
+        if !status.files.is_empty() {
+            for (label, count) in [
+                ("Preparados", staged.len()),
+                ("Sin preparar", unstaged.len()),
+            ] {
+                if count == 0 {
+                    continue;
+                }
+                let header = gtk::Label::new(Some(&format!("{label} ({count})")));
+                header.set_xalign(0.0);
+                header.add_css_class("dim-label");
+                header.add_css_class("caption");
+                header.set_margin_top(6);
+                header.set_margin_start(6);
+                let row = gtk::ListBoxRow::new();
+                row.set_selectable(false);
+                row.set_activatable(false);
+                row.set_child(Some(&header));
+                self.list.append(&row);
+                self.row_files.borrow_mut().push(None);
+                if label == "Preparados" {
+                    for file in &staged {
+                        let index = status
+                            .files
+                            .iter()
+                            .position(|candidate| candidate == *file)
+                            .unwrap_or(0);
+                        self.append_file_row(file, index);
+                    }
+                } else {
+                    for file in &unstaged {
+                        let index = status
+                            .files
+                            .iter()
+                            .position(|candidate| candidate == *file)
+                            .unwrap_or(0);
+                        self.append_file_row(file, index);
+                    }
+                }
+            }
+        }
+        if status.files.is_empty() {
+            let row = gtk::ListBoxRow::new();
+            row.set_selectable(false);
+            let label = gtk::Label::new(Some("Sin cambios"));
+            label.add_css_class("dim-label");
+            row.set_child(Some(&label));
+            self.list.append(&row);
+            self.row_files.borrow_mut().push(None);
+        }
+    }
+
+    fn append_file_row(&self, file: &termust_git_local::ChangedFile, index: usize) {
+        let row = gtk::ListBoxRow::new();
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        content.set_margin_top(4);
+        content.set_margin_bottom(4);
+        content.set_margin_start(6);
+        content.set_margin_end(6);
+        let badge = gtk::Label::new(Some(&format!("{}{}", file.index, file.worktree)));
+        badge.set_width_chars(2);
+        badge.add_css_class("monospace");
+        badge.add_css_class(status_class(file.kind));
+        content.append(&badge);
+        let name = if let Some(orig) = &file.orig_path {
+            format!("{} → {}", orig.display(), file.path.display())
+        } else {
+            file.path.display().to_string()
+        };
+        let label = gtk::Label::new(Some(&name));
+        label.set_xalign(0.0);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
+        label.set_hexpand(true);
+        content.append(&label);
+        row.set_child(Some(&content));
+        row.set_tooltip_text(Some(&file.path.display().to_string()));
+        self.list.append(&row);
+        self.row_files.borrow_mut().push(Some(index));
+    }
+
+    fn set_busy(&self, busy: bool) {
+        self.busy.set(busy);
+        self.subject.set_sensitive(!busy);
+        self.body.set_sensitive(!busy);
+        self.commit_button
+            .set_sensitive(!busy && !self.message().trim().is_empty());
+    }
+
+    fn load_diff(self: &Rc<Self>, path: PathBuf, staged: bool) {
+        let Some(repo) = self.repo.borrow().clone() else {
+            return;
+        };
+        let generation = self.diff_generation.get() + 1;
+        self.diff_generation.set(generation);
+        self.diff_path.set_text(&path.display().to_string());
+        let git = self.git.clone();
+        let cap = self.diff_cap.get();
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-diff".into())
+            .spawn(move || {
+                let _ = tx.send(git.diff(&repo, Some(&path), staged, cap));
+            });
+        listen(self.self_weak.clone(), rx, move |panel, result| {
+            if panel.diff_generation.get() != generation {
+                return;
+            }
+            match result {
+                Ok(diff) => panel.apply_diff(diff),
+                Err(error) => panel.show_error(&error.to_string()),
+            }
+        });
+    }
+
+    fn apply_diff(&self, diff: Diff) {
+        self.diff_buffer.set_text("");
+        self.diff_lines.set(diff.lines.len());
+        self.diff_binary.set(diff.binary);
+        self.diff_truncated.set(diff.truncated);
+        self.load_more.set_visible(diff.truncated);
+        if diff.binary {
+            self.diff_buffer
+                .set_text("Archivo binario: no se muestra el diff.");
+            return;
+        }
+        for line in &diff.lines {
+            let mut end = self.diff_buffer.end_iter();
+            self.diff_buffer
+                .insert(&mut end, &format!("{}\n", line.text));
+            let tag = match line.kind {
+                DiffLineKind::Add => Some("termust-diff-add"),
+                DiffLineKind::Del => Some("termust-diff-del"),
+                DiffLineKind::Hunk => Some("termust-diff-hunk"),
+                DiffLineKind::File => Some("termust-diff-file"),
+                DiffLineKind::Context | DiffLineKind::Meta => None,
+            };
+            if let Some(tag) = tag {
+                let line_number = self.diff_buffer.line_count().saturating_sub(1);
+                if let Some(line_start) = self.diff_buffer.iter_at_line(line_number) {
+                    let mut line_end = line_start;
+                    line_end.forward_to_line_end();
+                    self.diff_buffer
+                        .apply_tag_by_name(tag, &line_start, &line_end);
+                }
+            }
+        }
+    }
+
+    fn stage_selected(self: &Rc<Self>) {
+        if let Some(path) = self.selected.borrow().clone() {
+            self.stage_paths(&[path]);
+        }
+    }
+
+    fn unstage_selected(self: &Rc<Self>) {
+        if let Some(path) = self.selected.borrow().clone() {
+            self.unstage_paths(&[path]);
+        }
+    }
+
+    fn stage_paths(self: &Rc<Self>, paths: &[PathBuf]) {
+        let Some(repo) = self.repo.borrow().clone() else {
+            return;
+        };
+        self.repo_generation.set(self.repo_generation.get() + 1);
+        self.set_busy(true);
+        let git = self.git.clone();
+        let paths = paths.to_vec();
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-stage".into())
+            .spawn(move || {
+                let result = git
+                    .stage(&repo, &paths)
+                    .and_then(|_| git.status(&repo).map(|status| (repo.clone(), status)));
+                let _ = tx.send(result);
+            });
+        let weak = self.self_weak.clone();
+        listen(weak, rx, |panel, result| {
+            panel.set_busy(false);
+            match result {
+                Ok((repo, status)) => panel.apply_status(repo, status),
+                Err(error) => panel.show_error(&error.to_string()),
+            }
+        });
+    }
+
+    fn unstage_paths(self: &Rc<Self>, paths: &[PathBuf]) {
+        let Some(repo) = self.repo.borrow().clone() else {
+            return;
+        };
+        self.repo_generation.set(self.repo_generation.get() + 1);
+        self.set_busy(true);
+        let git = self.git.clone();
+        let paths = paths.to_vec();
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-unstage".into())
+            .spawn(move || {
+                let result = git
+                    .unstage(&repo, &paths)
+                    .and_then(|_| git.status(&repo).map(|status| (repo.clone(), status)));
+                let _ = tx.send(result);
+            });
+        listen(self.self_weak.clone(), rx, |panel, result| {
+            panel.set_busy(false);
+            match result {
+                Ok((repo, status)) => panel.apply_status(repo, status),
+                Err(error) => panel.show_error(&error.to_string()),
+            }
+        });
+    }
+
+    fn commit(self: &Rc<Self>) {
+        let message = self.message();
+        if message.trim().is_empty() {
+            self.toast
+                .add_toast(libadwaita::Toast::new("El mensaje de commit está vacío"));
+            return;
+        }
+        if self.busy.get() {
+            return;
+        }
+        let Some(repo) = self.repo.borrow().clone() else {
+            return;
+        };
+        self.repo_generation.set(self.repo_generation.get() + 1);
+        self.set_busy(true);
+        let git = self.git.clone();
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-git-commit".into())
+            .spawn(move || {
+                let result = git.commit(&repo, &message).and_then(|commit| {
+                    git.status(&repo)
+                        .map(|status| (commit, repo.clone(), status))
+                });
+                let _ = tx.send(result);
+            });
+        listen(self.self_weak.clone(), rx, |panel, result| {
+            panel.set_busy(false);
+            match result {
+                Ok((commit, repo, status)) => {
+                    panel.toast.add_toast(libadwaita::Toast::new(&format!(
+                        "Commit {}",
+                        &commit.oid[..7.min(commit.oid.len())]
+                    )));
+                    panel.subject.set_text("");
+                    panel.body.set_text("");
+                    panel.apply_status(repo, status);
+                }
+                Err(error) => panel.show_error(&error.to_string()),
+            }
+        });
+    }
+
+    fn message(&self) -> String {
+        let subject = self.subject.text().trim().to_string();
+        let body = self.body.text().trim().to_string();
+        if body.is_empty() {
+            subject
+        } else {
+            format!("{subject}\n\n{body}")
+        }
+    }
+
+    fn update_commit_hint(&self) {
+        let message = self.message();
+        let hint = commit_hint(&message);
+        let text = format!(
+            "Asunto {}/50 · cuerpo ≤72{}",
+            hint.subject_len,
+            if hint.body_line_too_long {
+                " · línea larga"
+            } else {
+                ""
+            }
+        );
+        self.hint.set_text(&text);
+        if hint.subject_too_long || hint.body_line_too_long {
+            self.hint.add_css_class("warning");
+        } else {
+            self.hint.remove_css_class("warning");
+        }
+        self.commit_button
+            .set_sensitive(!self.busy.get() && !message.trim().is_empty());
+    }
+
+    fn show_error(&self, message: &str) {
+        self.toast.add_toast(libadwaita::Toast::new(message));
+    }
+
+    // Getters para hooks E2E.
+    pub fn file_count(&self) -> usize {
+        self.status
+            .borrow()
+            .as_ref()
+            .map(|status| status.files.len())
+            .unwrap_or(0)
+    }
+
+    pub fn branch(&self) -> String {
+        self.status
+            .borrow()
+            .as_ref()
+            .map(|status| status.branch.head.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn repo_path(&self) -> Option<PathBuf> {
+        self.repo.borrow().as_ref().map(|repo| repo.root.clone())
+    }
+
+    pub fn diff_line_count(&self) -> usize {
+        self.diff_lines.get()
+    }
+
+    pub fn diff_is_binary(&self) -> bool {
+        self.diff_binary.get()
+    }
+
+    pub fn diff_truncated(&self) -> bool {
+        self.diff_truncated.get()
+    }
+
+    pub fn index_status_of(&self, name: &str) -> Option<char> {
+        self.status.borrow().as_ref().and_then(|status| {
+            status
+                .files
+                .iter()
+                .find(|file| file.path == Path::new(name))
+                .map(|file| file.index)
+        })
+    }
+
+    pub fn load_full_diff_now(self: &Rc<Self>) {
+        self.diff_cap.set(DIFF_CAP_LARGE);
+        if let Some(path) = self.selected.borrow().clone() {
+            self.load_diff(path, self.staged_toggle.is_active());
+        }
+    }
+
+    pub fn has_file(&self, name: &str) -> bool {
+        self.status
+            .borrow()
+            .as_ref()
+            .map(|status| status.files.iter().any(|file| file.path == Path::new(name)))
+            .unwrap_or(false)
+    }
+
+    pub fn kind_of(&self, name: &str) -> Option<ChangeKind> {
+        self.status.borrow().as_ref().and_then(|status| {
+            status
+                .files
+                .iter()
+                .find(|file| file.path == Path::new(name))
+                .map(|file| file.kind)
+        })
+    }
+
+    pub fn select_path(self: &Rc<Self>, name: &str) -> bool {
+        let index = self.status.borrow().as_ref().and_then(|status| {
+            status
+                .files
+                .iter()
+                .position(|file| file.path == Path::new(name))
+        });
+        let Some(index) = index else {
+            return false;
+        };
+        let row_index = self
+            .row_files
+            .borrow()
+            .iter()
+            .position(|mapped| *mapped == Some(index));
+        if let Some(row_index) = row_index {
+            if let Some(row) = self.list.row_at_index(row_index as i32) {
+                self.list.select_row(Some(&row));
+            }
+        }
+        let path = PathBuf::from(name);
+        self.selected.replace(Some(path.clone()));
+        self.load_diff(path, self.staged_toggle.is_active());
+        true
+    }
+
+    pub fn stage_selected_now(self: &Rc<Self>) {
+        self.stage_selected();
+    }
+
+    pub fn unstage_selected_now(self: &Rc<Self>) {
+        self.unstage_selected();
+    }
+
+    pub fn set_message(&self, subject: &str, body: &str) {
+        self.subject.set_text(subject);
+        self.body.set_text(body);
+        self.update_commit_hint();
+    }
+
+    pub fn commit_now(self: &Rc<Self>) {
+        self.commit();
+    }
+
+    pub fn set_staged_view(&self, staged: bool) {
+        self.staged_toggle.set_active(staged);
+    }
+}
+
+fn listen<T: Send + 'static>(
+    weak: Weak<GitPanel>,
+    rx: mpsc::Receiver<T>,
+    apply: impl Fn(&Rc<GitPanel>, T) + 'static,
+) {
+    glib::timeout_add_local(Duration::from_millis(40), move || match rx.try_recv() {
+        Ok(value) => {
+            if let Some(panel) = weak.upgrade() {
+                apply(&panel, value);
+            }
+            glib::ControlFlow::Break
+        }
+        Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
+        Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
+    });
+}
+
+fn create_diff_tags(buffer: &gtk::TextBuffer) {
+    let add = gtk::TextTag::builder().name("termust-diff-add").build();
+    add.set_foreground(Some("#26a269"));
+    buffer.tag_table().add(&add);
+    let del = gtk::TextTag::builder().name("termust-diff-del").build();
+    del.set_foreground(Some("#c01c28"));
+    buffer.tag_table().add(&del);
+    let hunk = gtk::TextTag::builder().name("termust-diff-hunk").build();
+    hunk.set_foreground(Some("#1c71d8"));
+    buffer.tag_table().add(&hunk);
+    let file = gtk::TextTag::builder().name("termust-diff-file").build();
+    file.set_foreground(Some("#5e5c64"));
+    file.set_weight(600);
+    buffer.tag_table().add(&file);
+}
+
+fn status_class(kind: ChangeKind) -> &'static str {
+    match kind {
+        ChangeKind::Added | ChangeKind::Untracked => "termust-git-added",
+        ChangeKind::Deleted => "termust-git-deleted",
+        ChangeKind::Conflict => "termust-git-conflict",
+        ChangeKind::Ignored => "dim-label",
+        _ => "termust-git-modified",
+    }
+}

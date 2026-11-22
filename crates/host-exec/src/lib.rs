@@ -501,6 +501,38 @@ mod tests {
     }
 }
 
+/// Comando para ejecutar una herramienta del host (`git`, editores) desde la
+/// app. En Flatpak pasa por `flatpak-spawn --host`; fuera, ejecuta directo.
+pub fn host_command(program: &str, args: &[OsString], cwd: Option<&Path>) -> Command {
+    build_host_command(is_flatpak(), program, args, cwd)
+}
+
+/// Constructor puro para testear el argv sin depender del sandbox.
+pub fn build_host_command(
+    flatpak: bool,
+    program: &str,
+    args: &[OsString],
+    cwd: Option<&Path>,
+) -> Command {
+    if flatpak {
+        let mut command = Command::new("flatpak-spawn");
+        command.arg("--host");
+        if let Some(cwd) = cwd {
+            command.arg(format!("--directory={}", cwd.display()));
+        }
+        command.arg(program);
+        command.args(args);
+        command
+    } else {
+        let mut command = Command::new(program);
+        command.args(args);
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        command
+    }
+}
+
 /// Editores externos permitidos por FR-5.6, en orden de preferencia.
 pub const EDITOR_ALLOWLIST: &[&str] = &["code", "codium", "zed", "gnome-text-editor"];
 
@@ -639,5 +671,38 @@ mod editor_tests {
         assert!(editor_argv(&host_only, &file, false).is_err());
         assert!(editor_argv(&host_only, &file, true).is_ok());
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod host_command_tests {
+    use super::*;
+
+    #[test]
+    fn git_command_uses_host_spawn_in_flatpak() {
+        let args = [OsString::from("status"), OsString::from("--short")];
+        let command = build_host_command(true, "git", &args, Some(Path::new("/tmp/repo")));
+        assert_eq!(command.get_program(), OsString::from("flatpak-spawn"));
+        let argv: Vec<OsString> = command.get_args().map(|arg| arg.to_os_string()).collect();
+        assert_eq!(
+            argv,
+            vec![
+                OsString::from("--host"),
+                OsString::from("--directory=/tmp/repo"),
+                OsString::from("git"),
+                OsString::from("status"),
+                OsString::from("--short"),
+            ]
+        );
+        assert!(command.get_current_dir().is_none());
+
+        let command = build_host_command(false, "git", &args, Some(Path::new("/tmp/repo")));
+        assert_eq!(command.get_program(), OsString::from("git"));
+        assert_eq!(command.get_current_dir(), Some(Path::new("/tmp/repo")));
+        let argv: Vec<OsString> = command.get_args().map(|arg| arg.to_os_string()).collect();
+        assert_eq!(
+            argv,
+            vec![OsString::from("status"), OsString::from("--short")]
+        );
     }
 }
