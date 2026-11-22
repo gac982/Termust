@@ -78,6 +78,8 @@ pub enum Action {
     ZoomOut,
     ZoomReset,
     Preferences,
+    ToggleFiles,
+    ToggleVerticalTabs,
     Fullscreen,
     Shortcuts,
     RenameTab,
@@ -116,6 +118,10 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
     let shift = ev.mods.shift;
     let alt = ev.mods.alt;
 
+    if !ctrl && !shift && !alt && ev.key == Key::F(9) {
+        return Some(Action::ToggleFiles);
+    }
+
     if ctrl && shift && alt {
         match ev.key {
             Key::Left => return Some(Action::ResizePane(Direction::Left)),
@@ -141,6 +147,9 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
             }
             Key::Char(c) if c.eq_ignore_ascii_case(&'e') => {
                 return Some(Action::SplitPane(SplitOrientation::Vertical))
+            }
+            Key::Char(c) if c.eq_ignore_ascii_case(&'l') => {
+                return Some(Action::ToggleVerticalTabs)
             }
             Key::PageUp if cfg.move_tabs => return Some(Action::MoveTabLeft),
             Key::PageDown if cfg.move_tabs => return Some(Action::MoveTabRight),

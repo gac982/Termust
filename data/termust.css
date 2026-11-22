@@ -46,3 +46,36 @@ window.termust-transparent .termust-pane,
 window.termust-transparent paned > separator {
   background-color: transparent;
 }
+
+/* Panel de archivos: color por tipo de archivo (simbólico, 16 px). */
+.termust-files image.termust-folder {
+  color: #3584e4;
+}
+
+.termust-files image.termust-code {
+  color: #26a269;
+}
+
+.termust-files image.termust-image {
+  color: #c061cb;
+}
+
+.termust-files image.termust-archive {
+  color: #e5a50a;
+}
+
+.termust-files image.termust-binary {
+  color: #e01b24;
+}
+
+.termust-files image.termust-broken {
+  color: #e5a50a;
+}
+
+.termust-files image.termust-file {
+  color: @window_fg_color;
+}
+
+.termust-files label.termust-dir {
+  font-weight: 500;
+}

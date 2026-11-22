@@ -31,6 +31,15 @@ struct Entry {
     attached: bool,
 }
 
+/// Vista de una pestaña para la barra vertical.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TabSummary {
+    pub id: TabId,
+    pub title: String,
+    pub cwd: PathBuf,
+    pub active: bool,
+}
+
 pub struct TabManager {
     tab_view: TabView,
     tab_bar: TabBar,
@@ -676,6 +685,16 @@ impl TabManager {
         }
     }
 
+    pub fn select_tab(&mut self, id: TabId) -> bool {
+        match self.entries.iter().find(|entry| entry.id == id) {
+            Some(entry) => {
+                self.tab_view.set_selected_page(&entry.page);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn select_last(&mut self) {
         if let Some(entry) = self.entries.last() {
             self.tab_view.set_selected_page(&entry.page);
@@ -720,6 +739,28 @@ impl TabManager {
 
     pub fn tab_count(&self) -> usize {
         self.entries.len()
+    }
+
+    /// Pestañas en orden, con título visible, cwd y cuál está activa.
+    pub fn tab_summaries(&self) -> Vec<TabSummary> {
+        let active = self.active_entry_index();
+        let model = self.model.borrow();
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let cwd = model
+                    .get(entry.id)
+                    .map(|tab| tab.cwd.clone())
+                    .unwrap_or_default();
+                TabSummary {
+                    id: entry.id,
+                    title: entry.page.title().to_string(),
+                    cwd,
+                    active: Some(index) == active,
+                }
+            })
+            .collect()
     }
 
     pub fn active_pane_count(&self) -> usize {

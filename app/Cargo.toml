@@ -19,5 +19,6 @@ termust-pty-unix.workspace = true
 termust-host-exec.workspace = true
 termust-store.workspace = true
 termust-text-render.workspace = true
+termust-fs-local.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true
