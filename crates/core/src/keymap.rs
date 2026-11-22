@@ -82,6 +82,7 @@ pub enum Action {
     RenameTab,
     SplitPane(SplitOrientation),
     FocusPane(Direction),
+    ResizePane(Direction),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,6 +114,16 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
     let ctrl = ev.mods.ctrl;
     let shift = ev.mods.shift;
     let alt = ev.mods.alt;
+
+    if ctrl && shift && alt {
+        match ev.key {
+            Key::Left => return Some(Action::ResizePane(Direction::Left)),
+            Key::Right => return Some(Action::ResizePane(Direction::Right)),
+            Key::Up => return Some(Action::ResizePane(Direction::Up)),
+            Key::Down => return Some(Action::ResizePane(Direction::Down)),
+            _ => {}
+        }
+    }
 
     if ctrl && shift {
         match ev.key {
@@ -309,6 +320,32 @@ mod tests {
         assert_eq!(
             press(Key::Char('e'), Mods::ctrl_shift()),
             Some(Action::SplitPane(SplitOrientation::Vertical))
+        );
+    }
+
+    #[test]
+    fn ctrl_shift_alt_arrows_resize_panes() {
+        let mods = Mods {
+            ctrl: true,
+            shift: true,
+            alt: true,
+            logo: false,
+        };
+        assert_eq!(
+            press(Key::Left, mods),
+            Some(Action::ResizePane(Direction::Left))
+        );
+        assert_eq!(
+            press(Key::Right, mods),
+            Some(Action::ResizePane(Direction::Right))
+        );
+        assert_eq!(
+            press(Key::Up, mods),
+            Some(Action::ResizePane(Direction::Up))
+        );
+        assert_eq!(
+            press(Key::Down, mods),
+            Some(Action::ResizePane(Direction::Down))
         );
     }
 

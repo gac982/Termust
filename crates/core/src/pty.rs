@@ -40,6 +40,11 @@ pub trait PtySession: Send {
     fn resize(&mut self, size: Size) -> std::io::Result<()>;
     fn kill(&mut self) -> std::io::Result<()>;
     fn pid(&self) -> u32;
+
+    /// ¿Hay un proceso en foreground distinto del shell? (FR-1.4)
+    fn has_foreground_job(&self) -> bool {
+        false
+    }
 }
 
 pub struct PtyHandle {

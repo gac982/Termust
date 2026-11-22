@@ -29,6 +29,61 @@ pub enum SplitError {
     MaxPanes,
     UnknownPane,
     LastPane,
+    TooManyPanes,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preset {
+    TwoColumns,
+    TwoRows,
+    ThreeColumns,
+    Grid2x2,
+}
+
+impl Preset {
+    pub fn panes(self) -> usize {
+        match self {
+            Preset::TwoColumns | Preset::TwoRows => 2,
+            Preset::ThreeColumns => 3,
+            Preset::Grid2x2 => 4,
+        }
+    }
+
+    pub fn build(self, ids: &[PaneId]) -> PaneTree {
+        let leaf = |i: usize| PaneTree::Leaf(ids[i]);
+        let split = |orientation, ratio, first, second| PaneTree::Split {
+            orientation,
+            ratio,
+            first: Box::new(first),
+            second: Box::new(second),
+        };
+        match self {
+            Preset::TwoColumns => split(
+                SplitOrientation::Horizontal,
+                DEFAULT_RATIO,
+                leaf(0),
+                leaf(1),
+            ),
+            Preset::TwoRows => split(SplitOrientation::Vertical, DEFAULT_RATIO, leaf(0), leaf(1)),
+            Preset::ThreeColumns => split(
+                SplitOrientation::Horizontal,
+                1.0 / 3.0,
+                leaf(0),
+                split(
+                    SplitOrientation::Horizontal,
+                    DEFAULT_RATIO,
+                    leaf(1),
+                    leaf(2),
+                ),
+            ),
+            Preset::Grid2x2 => split(
+                SplitOrientation::Horizontal,
+                DEFAULT_RATIO,
+                split(SplitOrientation::Vertical, DEFAULT_RATIO, leaf(0), leaf(1)),
+                split(SplitOrientation::Vertical, DEFAULT_RATIO, leaf(2), leaf(3)),
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -648,6 +703,67 @@ impl TabModel {
         }
     }
 
+    /// Aplica un preset al panel activo. Solo agrega paneles; si la pestaña
+    /// ya tiene más que los del preset, se rechaza para no matar procesos.
+    pub fn apply_preset(
+        &mut self,
+        tab_id: TabId,
+        preset: Preset,
+    ) -> Result<Vec<PaneId>, SplitError> {
+        let (mut ids, active) = {
+            let tab = self.get(tab_id).ok_or(SplitError::UnknownPane)?;
+            (tab.layout.leaves(), tab.active_pane)
+        };
+        let target = preset.panes();
+        if ids.len() > target {
+            return Err(SplitError::TooManyPanes);
+        }
+        let mut created = Vec::new();
+        while ids.len() < target {
+            let id = self.next_pane;
+            self.next_pane += 1;
+            ids.push(id);
+            created.push(id);
+        }
+        let tab = self.get_mut(tab_id).ok_or(SplitError::UnknownPane)?;
+        tab.layout = preset.build(&ids);
+        if !ids.contains(&active) {
+            tab.active_pane = ids[0];
+        }
+        Ok(created)
+    }
+
+    /// Ajusta el split más cercano del panel activo en el eje de la dirección.
+    pub fn nudge_split(&mut self, tab_id: TabId, direction: Direction, delta: f64) -> bool {
+        let Some(tab) = self.get_mut(tab_id) else {
+            return false;
+        };
+        let Some(path) = tab.layout.path_of(tab.active_pane) else {
+            return false;
+        };
+        let wanted = match direction {
+            Direction::Left | Direction::Right => SplitOrientation::Horizontal,
+            Direction::Up | Direction::Down => SplitOrientation::Vertical,
+        };
+        for depth in (0..path.len()).rev() {
+            let prefix = &path[..depth];
+            let Some(PaneTree::Split {
+                orientation, ratio, ..
+            }) = node_at_path(&tab.layout, prefix)
+            else {
+                continue;
+            };
+            if *orientation != wanted {
+                continue;
+            }
+            // El atajo mueve el divisor en la dirección de la flecha.
+            let increase = matches!(direction, Direction::Right | Direction::Down);
+            let next = *ratio + if increase { delta } else { -delta };
+            return tab.layout.set_ratio_at_path(prefix, next);
+        }
+        false
+    }
+
     pub fn set_ratio(&mut self, tab_id: TabId, path: &[bool], ratio: f64) -> bool {
         match self.get_mut(tab_id) {
             Some(tab) => tab.layout.set_ratio_at_path(path, ratio),
@@ -766,6 +882,46 @@ mod tests {
     }
 
     #[test]
+    fn presets_build_the_expected_shapes() {
+        let two = Preset::TwoColumns.build(&[1, 2]);
+        assert_eq!(two.leaves(), vec![1, 2]);
+        match two {
+            PaneTree::Split {
+                orientation, ratio, ..
+            } => {
+                assert_eq!(orientation, SplitOrientation::Horizontal);
+                assert_eq!(ratio, DEFAULT_RATIO);
+            }
+            _ => panic!("expected split"),
+        }
+        let three = Preset::ThreeColumns.build(&[1, 2, 3]);
+        assert_eq!(three.leaves(), vec![1, 2, 3]);
+        assert!((three.ratio_at_path(&[]).unwrap() - 1.0 / 3.0).abs() < 1e-9);
+        let grid = Preset::Grid2x2.build(&[1, 2, 3, 4]);
+        assert_eq!(grid.leaves(), vec![1, 2, 3, 4]);
+        assert_eq!(grid.len(), 4);
+    }
+
+    #[test]
+    fn apply_preset_adds_panes_and_keeps_active() {
+        let mut m = TabModel::new("/a");
+        let tab = m.active_id();
+        let first = m.active().active_pane;
+        let created = m.apply_preset(tab, Preset::TwoColumns).unwrap();
+        assert_eq!(created.len(), 1);
+        assert_eq!(m.pane_ids(tab).unwrap().len(), 2);
+        assert_eq!(m.active().active_pane, first);
+        let created = m.apply_preset(tab, Preset::Grid2x2).unwrap();
+        assert_eq!(created.len(), 2);
+        assert_eq!(m.pane_ids(tab).unwrap().len(), 4);
+        assert!(m.pane_ids(tab).unwrap()[..2].contains(&first));
+        assert_eq!(
+            m.apply_preset(tab, Preset::TwoColumns),
+            Err(SplitError::TooManyPanes)
+        );
+    }
+
+    #[test]
     fn split_adds_pane_and_activates_it() {
         let mut m = TabModel::new("/a");
         let tab = m.active_id();
@@ -878,6 +1034,36 @@ mod tests {
         m.focus_pane(tab, tl);
         assert!(!m.focus_direction(tab, Direction::Left));
         assert!(!m.focus_direction(tab, Direction::Up));
+    }
+
+    #[test]
+    fn nudge_adjusts_the_nearest_matching_split() {
+        let mut m = TabModel::new("/a");
+        let tab = m.active_id();
+        let first = m.active().active_pane;
+        let second = m
+            .split_pane(tab, first, SplitOrientation::Horizontal)
+            .unwrap();
+
+        m.focus_pane(tab, first);
+        assert!(m.nudge_split(tab, Direction::Right, 0.05));
+        assert!((m.ratio(tab, &[]).unwrap() - 0.55).abs() < 1e-9);
+        assert!(m.nudge_split(tab, Direction::Left, 0.05));
+        assert!((m.ratio(tab, &[]).unwrap() - 0.50).abs() < 1e-9);
+
+        m.focus_pane(tab, second);
+        assert!(m.nudge_split(tab, Direction::Right, 0.05));
+        assert!((m.ratio(tab, &[]).unwrap() - 0.55).abs() < 1e-9);
+        assert!(!m.nudge_split(tab, Direction::Up, 0.05));
+
+        let down = m
+            .split_pane(tab, second, SplitOrientation::Vertical)
+            .unwrap();
+        m.focus_pane(tab, down);
+        assert!(m.nudge_split(tab, Direction::Down, 0.05));
+        let down_path = m.active().layout.path_of(down).unwrap();
+        let split_path = &down_path[..down_path.len() - 1];
+        assert!((m.ratio(tab, split_path).unwrap() - 0.55).abs() < 1e-9);
     }
 
     #[test]

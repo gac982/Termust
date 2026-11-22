@@ -124,6 +124,15 @@ impl PtySpawner for UnixPtySpawner {
                 return Err(PtyError::Io(e.to_string()));
             }
         };
+        let query_fd = unsafe { libc::dup(master) };
+        if query_fd >= 0 {
+            unsafe {
+                let flags = libc::fcntl(query_fd, libc::F_GETFD);
+                if flags >= 0 {
+                    libc::fcntl(query_fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
+                }
+            }
+        }
         let master_file = unsafe { File::from_raw_fd(master) };
         let slave_file = unsafe { File::from_raw_fd(slave) };
 
@@ -178,6 +187,7 @@ impl PtySpawner for UnixPtySpawner {
                 id,
                 tx: self.tx.clone(),
                 pid,
+                query_fd,
                 waker: Arc::clone(&self.waker),
             }),
             events: rx,
@@ -189,6 +199,7 @@ struct UnixPtySession {
     id: u64,
     tx: Sender<HubCmd>,
     pid: u32,
+    query_fd: i32,
     waker: Arc<Waker>,
 }
 
@@ -226,12 +237,25 @@ impl PtySession for UnixPtySession {
     fn pid(&self) -> u32 {
         self.pid
     }
+
+    fn has_foreground_job(&self) -> bool {
+        if self.query_fd < 0 {
+            return false;
+        }
+        let fg = unsafe { libc::tcgetpgrp(self.query_fd) };
+        fg > 0 && fg != self.pid as i32
+    }
 }
 
 impl Drop for UnixPtySession {
     fn drop(&mut self) {
         let _ = self.tx.send(HubCmd::Kill { id: self.id });
         let _ = self.waker.wake();
+        if self.query_fd >= 0 {
+            unsafe {
+                libc::close(self.query_fd);
+            }
+        }
     }
 }
 
@@ -548,6 +572,32 @@ mod tests {
         let mut handle = spawner.spawn(spec(&["/bin/cat"])).unwrap();
         handle.session.resize(Size::new(100, 30)).unwrap();
         std::thread::sleep(Duration::from_millis(50));
+        handle.session.kill().unwrap();
+    }
+
+    #[test]
+    fn detects_foreground_job() {
+        let spawner = UnixPtySpawner::new().unwrap();
+        let mut handle = spawner
+            .spawn(spec(&["/bin/bash", "--noprofile", "--norc", "-i"]))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(!handle.session.has_foreground_job());
+        handle.session.write(b"sleep 5\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && !handle.session.has_foreground_job() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(handle.session.has_foreground_job(), "no detectó sleep");
+        handle.session.write(&[3]).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline && handle.session.has_foreground_job() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            !handle.session.has_foreground_job(),
+            "Ctrl+C no volvió al shell"
+        );
         handle.session.kill().unwrap();
     }
 

@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use termust_core::pty::{PtySpawner, SpawnSpec};
 use termust_core::tabs::{
-    Direction, PaneId, PaneTree, SplitError, SplitOrientation, TabId, TabModel,
+    Direction, PaneId, PaneTree, Preset, SplitError, SplitOrientation, TabId, TabModel,
 };
 use termust_core::terminal::Size;
 use termust_core::title::display_title;
@@ -36,6 +36,8 @@ pub struct TabManager {
     integration: ShellIntegration,
     window: ApplicationWindow,
     suspend_ratios: Rc<Cell<bool>>,
+    suspend_focus: Rc<Cell<bool>>,
+    close_dialog_open: Rc<Cell<bool>>,
 }
 
 impl TabManager {
@@ -64,6 +66,8 @@ impl TabManager {
             integration,
             window,
             suspend_ratios: Rc::new(Cell::new(false)),
+            suspend_focus: Rc::new(Cell::new(false)),
+            close_dialog_open: Rc::new(Cell::new(false)),
         };
         let first = model.borrow().active_id();
         manager.attach_tab(first)?;
@@ -107,6 +111,12 @@ impl TabManager {
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         container.set_hexpand(true);
         container.set_vexpand(true);
+        self.suspend_focus.set(true);
+        let suspend_focus = self.suspend_focus.clone();
+        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend_focus.set(false));
+        if layout.len() > 1 {
+            container.add_css_class("termust-multi-pane");
+        }
 
         self.suspend_ratios.set(true);
         let mut positions = Vec::new();
@@ -159,9 +169,14 @@ impl TabManager {
     }
 
     fn install_focus(&self, view: &TerminalView, tab_id: TabId, pane: PaneId) {
+        view.widget().add_css_class("termust-pane");
         let model = self.model.clone();
+        let suspend = self.suspend_focus.clone();
         let focus = gtk::EventControllerFocus::new();
         focus.connect_enter(move |_| {
+            if suspend.get() {
+                return;
+            }
             if let Ok(mut model) = model.try_borrow_mut() {
                 let _ = model.focus_pane(tab_id, pane);
             }
@@ -253,7 +268,15 @@ impl TabManager {
         };
 
         self.suspend_ratios.set(true);
+        self.suspend_focus.set(true);
+        let suspend_focus = self.suspend_focus.clone();
+        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend_focus.set(false));
         let entry = &self.entries[index];
+        if layout.len() > 1 {
+            entry.container.add_css_class("termust-multi-pane");
+        } else {
+            entry.container.remove_css_class("termust-multi-pane");
+        }
         // Desmontar primero: las vistas deben quedar sin padre antes de
         // volver a insertarlas en el árbol nuevo (GtkPaned lo exige).
         while let Some(child) = entry.container.first_child() {
@@ -317,6 +340,54 @@ impl TabManager {
         self.rebuild(tab_id);
         self.focus_active();
         Ok(new_pane)
+    }
+
+    pub fn apply_preset(&mut self, preset: Preset) -> Result<(), String> {
+        let Some(index) = self.active_entry_index() else {
+            return Err("sin pestaña activa".into());
+        };
+        let tab_id = self.entries[index].id;
+        let tab_cwd = {
+            let model = self.model.borrow();
+            model.get(tab_id).map(|tab| tab.cwd.clone())
+        };
+        let cwd = self
+            .active_cwd()
+            .or(tab_cwd)
+            .unwrap_or_else(|| PathBuf::from("/"));
+        let created = self
+            .model
+            .borrow_mut()
+            .apply_preset(tab_id, preset)
+            .map_err(|e| match e {
+                SplitError::TooManyPanes => {
+                    "Ese diseño tiene menos paneles; cierra los demás primero".to_string()
+                }
+                _ => "No se pudo aplicar el diseño".to_string(),
+            })?;
+        for pane in created {
+            let view = self.spawn_view(&cwd)?;
+            self.install_focus(&view, tab_id, pane);
+            if let Some(entry) = self.entries.iter_mut().find(|e| e.id == tab_id) {
+                entry.panes.insert(pane, view);
+            }
+        }
+        self.rebuild(tab_id);
+        self.focus_active();
+        Ok(())
+    }
+
+    pub fn resize_direction(&mut self, direction: Direction) -> bool {
+        let Some(index) = self.active_entry_index() else {
+            return false;
+        };
+        let tab_id = self.entries[index].id;
+        let changed = self.model.borrow_mut().nudge_split(tab_id, direction, 0.05);
+        if changed {
+            self.rebuild(tab_id);
+            self.focus_active();
+        }
+        changed
     }
 
     pub fn focus_direction(&mut self, direction: Direction) -> bool {
@@ -415,6 +486,42 @@ impl TabManager {
 
     pub fn active_pane_count(&self) -> usize {
         self.model.borrow().active().layout.len()
+    }
+
+    pub fn active_pane(&self) -> Option<PaneId> {
+        self.model
+            .borrow()
+            .get(self.model.borrow().active_id())
+            .map(|tab| tab.active_pane)
+    }
+
+    pub fn active_cwd(&self) -> Option<PathBuf> {
+        let index = self.active_entry_index()?;
+        let entry = &self.entries[index];
+        let active = self
+            .model
+            .borrow()
+            .get(entry.id)
+            .map(|tab| tab.active_pane)?;
+        entry.panes.get(&active).and_then(|view| view.cwd())
+    }
+
+    pub fn send_active(&self, bytes: &[u8]) {
+        let Some(index) = self.active_entry_index() else {
+            return;
+        };
+        let entry = &self.entries[index];
+        let Some(active) = self.model.borrow().get(entry.id).map(|tab| tab.active_pane) else {
+            return;
+        };
+        if let Some(view) = entry.panes.get(&active) {
+            view.write_input(bytes);
+        }
+    }
+
+    pub fn ratio(&self, path: &[bool]) -> Option<f64> {
+        let model = self.model.borrow();
+        model.ratio(model.active_id(), path)
     }
 
     pub fn active_index(&self) -> usize {
@@ -520,6 +627,71 @@ impl TabManager {
         }
     }
 
+    fn page_has_foreground(&self, page: &TabPage) -> bool {
+        self.entries
+            .iter()
+            .find(|entry| entry.page == *page)
+            .map(|entry| entry.panes.values().any(|view| view.has_foreground_job()))
+            .unwrap_or(false)
+    }
+
+    /// Punto de entrada para cerrar panel/pestaña con confirmación.
+    pub fn close_request(manager: &Rc<RefCell<Self>>) {
+        let (tab_id, active, multi, needs, page) = {
+            let Ok(manager) = manager.try_borrow() else {
+                return;
+            };
+            let Some(index) = manager.active_entry_index() else {
+                return;
+            };
+            let entry = &manager.entries[index];
+            let (multi, active) = {
+                let model = manager.model.borrow();
+                match model.get(entry.id) {
+                    Some(tab) => (tab.layout.len() > 1, tab.active_pane),
+                    None => return,
+                }
+            };
+            let needs = entry
+                .panes
+                .get(&active)
+                .map(|view| view.has_foreground_job())
+                .unwrap_or(false);
+            (entry.id, active, multi, needs, entry.page.clone())
+        };
+
+        if !multi {
+            // La confirmación de la pestaña la resuelve connect_close_page.
+            manager.borrow().tab_view.close_page(&page);
+            return;
+        }
+
+        if !needs {
+            if let Ok(mut manager) = manager.try_borrow_mut() {
+                manager.close_pane(tab_id, active);
+            }
+            return;
+        }
+
+        let window = manager.borrow().window.clone();
+        let manager = manager.clone();
+        let dialog = libadwaita::AlertDialog::builder()
+            .title("Cerrar panel con proceso activo")
+            .body("Hay un proceso en ejecución en este panel. Si lo cierras, se terminará.")
+            .build();
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("close", "Close");
+        dialog.set_response_appearance("close", ResponseAppearance::Destructive);
+        dialog.connect_response(None, move |_, response| {
+            if response == "close" {
+                if let Ok(mut manager) = manager.try_borrow_mut() {
+                    manager.close_pane(tab_id, active);
+                }
+            }
+        });
+        dialog.present(Some(&window));
+    }
+
     fn detach_page(&mut self, page: &TabPage) {
         let Some(index) = self.entries.iter().position(|e| e.page == *page) else {
             return;
@@ -552,6 +724,53 @@ impl TabManager {
 
     pub fn connect(manager: &Rc<RefCell<Self>>) {
         let tab_view = manager.borrow().tab_view.clone();
+
+        {
+            let manager = manager.clone();
+            tab_view.connect_close_page(move |view, page| {
+                let (needs, window, already) = {
+                    let Ok(manager) = manager.try_borrow() else {
+                        return glib::Propagation::Proceed;
+                    };
+                    let needs = manager.page_has_foreground(page);
+                    (
+                        needs,
+                        manager.window.clone(),
+                        manager.close_dialog_open.get(),
+                    )
+                };
+                if !needs {
+                    return glib::Propagation::Proceed;
+                }
+                if already {
+                    return glib::Propagation::Stop;
+                }
+                {
+                    let Ok(manager) = manager.try_borrow() else {
+                        return glib::Propagation::Proceed;
+                    };
+                    manager.close_dialog_open.set(true);
+                }
+                let view = view.clone();
+                let page = page.clone();
+                let manager = manager.clone();
+                let dialog = libadwaita::AlertDialog::builder()
+                    .title("Cerrar con proceso activo")
+                    .body("Hay un proceso en ejecución. Si cierras, se terminará.")
+                    .build();
+                dialog.add_response("cancel", "Cancel");
+                dialog.add_response("close", "Close");
+                dialog.set_response_appearance("close", ResponseAppearance::Destructive);
+                dialog.connect_response(None, move |_, response| {
+                    if let Ok(manager) = manager.try_borrow() {
+                        manager.close_dialog_open.set(false);
+                    }
+                    view.close_page_finish(&page, response == "close");
+                });
+                dialog.present(Some(&window));
+                glib::Propagation::Stop
+            });
+        }
 
         {
             let manager = manager.clone();

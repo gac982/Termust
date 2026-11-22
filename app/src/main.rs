@@ -13,7 +13,7 @@ use tabs::TabManager;
 use termust_core::keymap::{
     resolve_shortcut, Action, Focus, Key as CoreKey, KeyConfig, KeyEvent, Mods,
 };
-use termust_core::tabs::{Direction, SplitOrientation};
+use termust_core::tabs::{Direction, Preset, SplitOrientation};
 use termust_pty_unix::UnixPtySpawner;
 
 fn main() -> glib::ExitCode {
@@ -117,6 +117,88 @@ fn build_ui(app: &Application) -> ApplicationWindow {
     let toast_overlay = libadwaita::ToastOverlay::new();
     toast_overlay.set_child(Some(manager.borrow().tab_view()));
     toolbar.set_content(Some(&toast_overlay));
+
+    {
+        let group = gtk::gio::SimpleActionGroup::new();
+        let split_right = gtk::gio::SimpleAction::new("split-right", None);
+        {
+            let manager = manager.clone();
+            let toast = toast_overlay.clone();
+            split_right.connect_activate(move |_, _| {
+                if let Err(e) = manager
+                    .borrow_mut()
+                    .split_active(SplitOrientation::Horizontal)
+                {
+                    toast.add_toast(libadwaita::Toast::new(&e));
+                }
+            });
+        }
+        group.add_action(&split_right);
+        let split_down = gtk::gio::SimpleAction::new("split-down", None);
+        {
+            let manager = manager.clone();
+            let toast = toast_overlay.clone();
+            split_down.connect_activate(move |_, _| {
+                if let Err(e) = manager
+                    .borrow_mut()
+                    .split_active(SplitOrientation::Vertical)
+                {
+                    toast.add_toast(libadwaita::Toast::new(&e));
+                }
+            });
+        }
+        group.add_action(&split_down);
+
+        for (name, preset) in [
+            ("preset-two-columns", Preset::TwoColumns),
+            ("preset-two-rows", Preset::TwoRows),
+            ("preset-three-columns", Preset::ThreeColumns),
+            ("preset-grid", Preset::Grid2x2),
+        ] {
+            let action = gtk::gio::SimpleAction::new(name, None);
+            let manager = manager.clone();
+            let toast = toast_overlay.clone();
+            action.connect_activate(move |_, _| {
+                if let Err(e) = manager.borrow_mut().apply_preset(preset) {
+                    toast.add_toast(libadwaita::Toast::new(&e));
+                }
+            });
+            group.add_action(&action);
+        }
+
+        let close_pane = gtk::gio::SimpleAction::new("close-pane", None);
+        {
+            let manager = manager.clone();
+            close_pane.connect_activate(move |_, _| TabManager::close_request(&manager));
+        }
+        group.add_action(&close_pane);
+        let rename_tab = gtk::gio::SimpleAction::new("rename-tab", None);
+        {
+            let manager = manager.clone();
+            rename_tab.connect_activate(move |_, _| TabManager::rename_dialog(&manager));
+        }
+        group.add_action(&rename_tab);
+        window.insert_action_group("pane", Some(&group));
+
+        let menu = gtk::gio::Menu::new();
+        menu.append(Some("Dividir a la derecha"), Some("pane.split-right"));
+        menu.append(Some("Dividir abajo"), Some("pane.split-down"));
+        let designs = gtk::gio::Menu::new();
+        designs.append(Some("Dos columnas"), Some("pane.preset-two-columns"));
+        designs.append(Some("Dos filas"), Some("pane.preset-two-rows"));
+        designs.append(Some("Tres columnas"), Some("pane.preset-three-columns"));
+        designs.append(Some("Cuadrícula 2×2"), Some("pane.preset-grid"));
+        menu.append_submenu(Some("Diseños"), &designs);
+        menu.append(Some("Renombrar pestaña"), Some("pane.rename-tab"));
+        menu.append(Some("Cerrar panel"), Some("pane.close-pane"));
+        let menu_button = gtk::MenuButton::builder()
+            .icon_name("open-menu-symbolic")
+            .tooltip_text("Menú")
+            .build();
+        menu_button.set_menu_model(Some(&menu));
+        header.pack_end(&menu_button);
+    }
+
     manager.borrow().focus_active();
 
     {
@@ -147,6 +229,10 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                 TabManager::rename_dialog(&manager);
                 return glib::Propagation::Stop;
             }
+            if action == Action::CloseTab {
+                TabManager::close_request(&manager);
+                return glib::Propagation::Stop;
+            }
 
             let mut mgr = manager.borrow_mut();
             match action {
@@ -155,7 +241,6 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                         eprintln!("termust: no se pudo abrir pestaña: {e}");
                     }
                 }
-                Action::CloseTab => mgr.close_active(),
                 Action::NextTab => mgr.select_next(),
                 Action::PrevTab => mgr.select_prev(),
                 Action::Activate(n) => mgr.select_index(n.saturating_sub(1)),
@@ -169,6 +254,9 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                 }
                 Action::FocusPane(direction) => {
                     mgr.focus_direction(direction);
+                }
+                Action::ResizePane(direction) => {
+                    mgr.resize_direction(direction);
                 }
                 _ => {}
             }
@@ -244,6 +332,151 @@ fn build_ui(app: &Application) -> ApplicationWindow {
                 std::process::exit(1);
             }
             app.quit();
+        });
+    }
+
+    if std::env::var_os("TERMUST_CWD_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            manager.borrow().send_active(b"cd /tmp\n");
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                let mut failed = false;
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-cwd-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed |= !ok;
+                };
+                let cwd = manager2.borrow().active_cwd();
+                check(
+                    "cwd /tmp antes del split",
+                    cwd.as_ref().map(|p| p.ends_with("tmp")).unwrap_or(false),
+                );
+                {
+                    let mut mgr = manager2.borrow_mut();
+                    check(
+                        "split hereda cwd",
+                        mgr.split_active(SplitOrientation::Horizontal).is_ok(),
+                    );
+                    check("2 paneles", mgr.active_pane_count() == 2);
+                    check(
+                        "ratio inicial 0.5",
+                        mgr.ratio(&[])
+                            .map(|r| (r - 0.5).abs() < 0.01)
+                            .unwrap_or(false),
+                    );
+                    mgr.resize_direction(Direction::Right);
+                    check(
+                        "resize a la derecha",
+                        mgr.ratio(&[]).map(|r| r > 0.5).unwrap_or(false),
+                    );
+                    let active_before = mgr.active_pane();
+                    check(
+                        "preset cuadrícula 2x2",
+                        mgr.apply_preset(Preset::Grid2x2).is_ok(),
+                    );
+                    check(
+                        "preset conserva panel activo",
+                        active_before.is_some() && active_before == mgr.active_pane(),
+                    );
+                    check("4 paneles tras preset", mgr.active_pane_count() == 4);
+                    check(
+                        "preset menor rechazado",
+                        mgr.apply_preset(Preset::TwoColumns).is_err(),
+                    );
+                }
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+                    let mut failed = false;
+                    let mut check = |label: &str, ok: bool| {
+                        eprintln!(
+                            "termust-cwd-test: {label} {}",
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        failed |= !ok;
+                    };
+                    let cwd = manager3.borrow().active_cwd();
+                    eprintln!("termust-cwd-test: cwd final = {cwd:?}");
+                    check(
+                        "panel nuevo en /tmp",
+                        cwd.as_ref().map(|p| p.ends_with("tmp")).unwrap_or(false),
+                    );
+                    if failed {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+                if failed {
+                    std::process::exit(1);
+                }
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_CLOSE_CONFIRM_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(800), move || {
+            {
+                let mut mgr = manager.borrow_mut();
+                let _ = mgr.split_active(SplitOrientation::Horizontal);
+                mgr.send_active(b"sleep 30\n");
+            }
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(800), move || {
+                let before = manager2.borrow().active_pane_count();
+                TabManager::close_request(&manager2);
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                    let mut failed = false;
+                    let mut check = |label: &str, ok: bool| {
+                        eprintln!(
+                            "termust-close-confirm-test: {label} {}",
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        failed |= !ok;
+                    };
+                    check(
+                        "no cerró con foreground",
+                        manager3.borrow().active_pane_count() == before,
+                    );
+                    {
+                        let mut mgr = manager3.borrow_mut();
+                        mgr.focus_direction(Direction::Left);
+                    }
+                    TabManager::close_request(&manager3);
+                    let manager4 = manager3.clone();
+                    let app4 = app3.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                        let mut failed = false;
+                        let mut check = |label: &str, ok: bool| {
+                            eprintln!(
+                                "termust-close-confirm-test: {label} {}",
+                                if ok { "ok" } else { "FAIL" }
+                            );
+                            failed |= !ok;
+                        };
+                        check(
+                            "cerró el panel inactivo",
+                            manager4.borrow().active_pane_count() == 1,
+                        );
+                        if failed {
+                            std::process::exit(1);
+                        }
+                        app4.quit();
+                    });
+                    if failed {
+                        std::process::exit(1);
+                    }
+                });
+            });
         });
     }
 
