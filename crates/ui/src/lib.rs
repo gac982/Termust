@@ -532,6 +532,14 @@ impl TerminalView {
         self.engine.borrow_mut().history_ready()
     }
 
+    pub fn history_size(&self) -> usize {
+        self.engine.borrow_mut().snapshot().history_size
+    }
+
+    pub fn set_history_limit(&self, lines: usize) {
+        self.engine.borrow_mut().set_history_limit(lines);
+    }
+
     pub fn take_history(&self) -> Vec<CommandRecord> {
         self.engine.borrow_mut().take_history()
     }

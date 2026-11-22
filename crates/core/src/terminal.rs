@@ -164,6 +164,9 @@ pub trait TerminalEngine {
     fn feed(&mut self, bytes: &[u8]);
     fn resize(&mut self, size: Size);
     fn snapshot(&mut self) -> Snapshot;
+
+    /// Ajusta el techo de scrollback (cap global entre paneles).
+    fn set_history_limit(&mut self, _lines: usize) {}
     fn scroll(&mut self, delta: i32);
     fn title(&self) -> Option<&str>;
     fn cwd(&self) -> Option<&PathBuf>;

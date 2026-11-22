@@ -67,6 +67,10 @@ pub struct AlacrittyEngine {
 }
 
 impl AlacrittyEngine {
+    pub fn set_history_limit(&mut self, lines: usize) {
+        self.term.grid_mut().update_history(lines);
+    }
+
     pub fn new(size: Size, history: usize) -> Self {
         let cfg = Config {
             scrolling_history: history,
@@ -150,6 +154,10 @@ impl TerminalEngine for AlacrittyEngine {
             rows: size.rows,
         });
         self.size = size;
+    }
+
+    fn set_history_limit(&mut self, lines: usize) {
+        self.set_history_limit(lines);
     }
 
     fn snapshot(&mut self) -> Snapshot {
@@ -453,6 +461,46 @@ mod tests {
         assert_eq!(
             e.prompt().state,
             termust_core::terminal::PromptState::AtPrompt
+        );
+    }
+}
+
+#[cfg(test)]
+mod throughput_tests {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn raw_alacritty_throughput() {
+        let size = Size::new(120, 40);
+        let dim = Dim {
+            cols: size.cols,
+            rows: size.rows,
+        };
+        let (tx, _rx) = channel();
+        let mut term = Term::new(
+            Config {
+                scrolling_history: 2_000,
+                ..Default::default()
+            },
+            &dim,
+            Listener { tx },
+        );
+        let mut parser = Proc::new();
+        let mut payload = String::with_capacity(10 * 1024 * 1024);
+        while payload.len() < 10 * 1024 * 1024 {
+            payload.push_str(&"x".repeat(120));
+            payload.push('\n');
+        }
+        let bytes = payload.as_bytes();
+        let start = std::time::Instant::now();
+        for part in bytes.chunks(64 * 1024) {
+            parser.advance(&mut term, part);
+        }
+        let elapsed = start.elapsed();
+        eprintln!(
+            "raw alacritty: {:.1} MB/s",
+            bytes.len() as f64 / 1024.0 / 1024.0 / elapsed.as_secs_f64()
         );
     }
 }

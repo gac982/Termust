@@ -259,8 +259,25 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             "termust-startup: pestaña activa adjunta en {} ms",
             started.elapsed().as_millis()
         );
+        let manager = manager.clone();
         let app = app.clone();
-        glib::timeout_add_local_once(Duration::from_millis(250), move || app.quit());
+        glib::timeout_add_local(Duration::from_millis(5), move || {
+            let ready = manager
+                .try_borrow()
+                .ok()
+                .and_then(|manager| manager.active_view().map(|view| view.history_ready()))
+                .unwrap_or(false);
+            if ready || started.elapsed() > Duration::from_secs(2) {
+                eprintln!(
+                    "termust-startup: primer prompt en {} ms",
+                    started.elapsed().as_millis()
+                );
+                app.quit();
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
     }
     let agent_catalog = Rc::new(AgentCatalog::load());
     for error in &agent_catalog.errors {
@@ -271,6 +288,26 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             eprintln!("termust: no se pudo abrir pestaña: {e}");
             break;
         }
+    }
+    if std::env::var_os("TERMUST_STARTUP9_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local(Duration::from_millis(20), move || {
+            let (tabs, ready) = manager
+                .try_borrow()
+                .map(|manager| (manager.tab_count(), manager.ready_views()))
+                .unwrap_or((0, 0));
+            if (tabs >= 9 && ready >= 9) || started.elapsed() > Duration::from_secs(3) {
+                eprintln!(
+                    "termust-startup9: pestañas={tabs} listas={ready} en {} ms",
+                    started.elapsed().as_millis()
+                );
+                app.quit();
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
     }
 
     install_css();
@@ -759,6 +796,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let last_git_cwd: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
+            manager.borrow().apply_scrollback_budget();
             manager.borrow_mut().update_agents(&agent_catalog);
             let agent = manager.borrow().active_agent();
             update_agent_bar(
@@ -2152,6 +2190,184 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_PERF_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let home = home.clone();
+        let case = std::env::var("TERMUST_PERF_CASE").unwrap_or_else(|_| "1t".into());
+        let tabs: usize = match case.as_str() {
+            "1t" => 1,
+            "9t" | "9h" | "idle9" => 9,
+            "30t" | "30h" => 30,
+            other => other.parse().unwrap_or(1),
+        };
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            for _ in 1..tabs {
+                if manager.borrow_mut().open_tab(home.clone()).is_err() {
+                    break;
+                }
+            }
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            let case2 = case.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                if case2.ends_with('h') {
+                    for index in 0..tabs {
+                        manager2.borrow_mut().select_index(index);
+                        manager2.borrow().send_active(b"seq 1 2000\n");
+                    }
+                    manager2.borrow_mut().select_index(0);
+                }
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                let case3 = case2.clone();
+                let cpu_before = process_cpu_ticks();
+                let cpu_clock = std::time::Instant::now();
+                let wait_ms = if case3 == "idle9" { 10_000 } else { 2_200 };
+                glib::timeout_add_local_once(Duration::from_millis(wait_ms), move || {
+                    let pss = pss_kb();
+                    let rss = rss_kb();
+                    let mut cpu = 0.0;
+                    if case3 == "idle9" {
+                        cpu = cpu_percent_between(cpu_before, cpu_clock.elapsed());
+                    }
+                    eprintln!(
+                        "termust-perf: caso={case3} pestañas={} pss={pss} kB rss={rss} kB cpu={cpu:.2}% history={}",
+                        manager3.borrow().tab_count(),
+                        manager3.borrow().history_total()
+                    );
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_ENGINE_BENCH").is_some() {
+        use termust_core::terminal::{Size, TerminalEngine};
+        use termust_text_render::{PaintOpts, TextRenderer};
+        let app = app.clone();
+        let mut engine = termust_term_engine::AlacrittyEngine::new(Size::new(120, 40), 2_000);
+        let chunk = "x".repeat(120) + "\n";
+        let mut payload = String::with_capacity(10 * 1024 * 1024);
+        while payload.len() < 10 * 1024 * 1024 {
+            payload.push_str(&chunk);
+        }
+        let bytes = payload.as_bytes();
+        let started = std::time::Instant::now();
+        for part in bytes.chunks(64 * 1024) {
+            engine.feed(part);
+        }
+        let elapsed = started.elapsed();
+        let mbps = bytes.len() as f64 / 1024.0 / 1024.0 / elapsed.as_secs_f64();
+        let snapshot = engine.snapshot();
+        let renderer = termust_render_cairo::CairoRenderer::new();
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1280, 800).unwrap();
+        let ctx = cairo::Context::new(&surface).unwrap();
+        let opts = PaintOpts {
+            font: termust_text_render::FontSpec::default(),
+            selection: None,
+            bg_alpha: 1.0,
+        };
+        let mut frames = Vec::new();
+        for _ in 0..120 {
+            let frame_start = std::time::Instant::now();
+            renderer.paint(
+                &ctx,
+                &snapshot,
+                &termust_text_render::Theme::default(),
+                &opts,
+            );
+            frames.push(frame_start.elapsed().as_secs_f64() * 1000.0);
+        }
+        frames.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let p50 = frames[frames.len() / 2];
+        let p95 = frames[(frames.len() * 95) / 100];
+        let mut key_frames = Vec::new();
+        for _ in 0..200 {
+            let start = std::time::Instant::now();
+            engine.feed(b"a");
+            let snapshot = engine.snapshot();
+            renderer.paint(
+                &ctx,
+                &snapshot,
+                &termust_text_render::Theme::default(),
+                &opts,
+            );
+            key_frames.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        key_frames.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let key_p50 = key_frames[key_frames.len() / 2];
+        let key_p95 = key_frames[(key_frames.len() * 95) / 100];
+        eprintln!(
+            "termust-engine-bench: parse={mbps:.1} MB/s frame_p50={p50:.2} ms frame_p95={p95:.2} ms key_p50={key_p50:.2} ms key_p95={key_p95:.2} ms"
+        );
+        app.quit();
+    }
+
+    if std::env::var_os("TERMUST_FLOOD_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let home = home.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            for _ in 1..3 {
+                let _ = manager.borrow_mut().open_tab(home.clone());
+            }
+            for index in 0..3 {
+                manager.borrow_mut().select_index(index);
+                manager.borrow().send_active(b"yes\n");
+            }
+            manager.borrow_mut().select_index(0);
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(6000), move || {
+                let pss1 = pss_kb();
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(4000), move || {
+                    let pss2 = pss_kb();
+                    eprintln!(
+                        "termust-flood: pss_6s={pss1} kB pss_10s={pss2} kB delta={} kB",
+                        pss2 as i64 - pss1 as i64
+                    );
+                    app3.quit();
+                    let _ = manager3;
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_HISTORY_BENCH").is_some() {
+        use termust_core::history::{HistoryEntry, HistoryIndex, HistorySource};
+        let app = app.clone();
+        let home = home.clone();
+        let mut index = HistoryIndex::new();
+        for item in 0..10_000 {
+            index.insert(HistoryEntry::new(
+                format!("comando-{item} --flag"),
+                home.clone(),
+                item,
+                Some(0),
+                HistorySource::Session,
+            ));
+        }
+        let mut samples = Vec::new();
+        for query in 0..1_000 {
+            let text = format!("comando-{}", query * 7 % 10_000);
+            let start = std::time::Instant::now();
+            let results = index.search(&text, 50);
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            std::hint::black_box(results);
+        }
+        samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+        let p95 = samples[(samples.len() * 95) / 100];
+        eprintln!(
+            "termust-history-bench: entries=10000 mean={mean:.3} ms p95={p95:.3} ms max={:.3} ms",
+            samples.last().copied().unwrap_or(0.0)
+        );
+        app.quit();
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -2491,4 +2707,38 @@ fn update_agent_bar(
     task.set_tooltip_text(Some(&agent.task));
     dot.set_tooltip_text(Some(agent.state.label()));
     dot.set_css_classes(&["termust-agent-dot", agent.state.css_class()]);
+}
+
+fn pss_kb() -> u64 {
+    let Ok(text) = std::fs::read_to_string("/proc/self/smaps_rollup") else {
+        return 0;
+    };
+    text.lines()
+        .find_map(|line| {
+            let value = line.strip_prefix("Pss:")?;
+            value.split_whitespace().next()?.parse().ok()
+        })
+        .unwrap_or(0)
+}
+
+fn cpu_percent_between(before: u64, elapsed: std::time::Duration) -> f64 {
+    let seconds = elapsed.as_secs_f64().max(0.001);
+    let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as f64;
+    (process_cpu_ticks().saturating_sub(before) as f64 / ticks_per_second) / seconds * 100.0
+}
+
+fn process_cpu_ticks() -> u64 {
+    let Ok(text) = std::fs::read_to_string("/proc/self/stat") else {
+        return 0;
+    };
+    let Some((_, rest)) = text.split_once(')') else {
+        return 0;
+    };
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    if fields.len() < 13 {
+        return 0;
+    }
+    let utime: u64 = fields[11].parse().unwrap_or(0);
+    let stime: u64 = fields[12].parse().unwrap_or(0);
+    utime + stime
 }

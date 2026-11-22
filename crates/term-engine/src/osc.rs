@@ -50,6 +50,11 @@ impl OscScanner {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
+        // En texto normal (sin ESC y fuera de una secuencia) no hay nada que
+        // escanear: evita recorrer cada byte del output.
+        if matches!(self.state, State::Ground) && !bytes.contains(&0x1b) {
+            return;
+        }
         for &b in bytes {
             self.step(b);
         }
