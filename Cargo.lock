@@ -947,20 +947,12 @@ version = "0.1.0"
 dependencies = [
  "gtk4",
  "libadwaita",
- "termust-agents",
  "termust-core",
- "termust-fs-local",
- "termust-git-local",
- "termust-git-remote",
  "termust-host-exec",
  "termust-pty-unix",
  "termust-render-cairo",
- "termust-render-gl",
- "termust-store",
- "termust-syntax",
  "termust-term-engine",
  "termust-ui",
- "termust-vault",
 ]
 
 [[package]]
@@ -995,6 +987,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "termust-host-pty"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "termust-pty-unix"
 version = "0.1.0"
 dependencies = [
@@ -1011,6 +1010,7 @@ dependencies = [
  "pango",
  "pangocairo",
  "termust-core",
+ "termust-term-engine",
  "termust-text-render",
 ]
 
@@ -1048,7 +1048,6 @@ version = "0.1.0"
 dependencies = [
  "cairo-rs",
  "gtk4",
- "libadwaita",
  "termust-core",
  "termust-text-render",
 ]

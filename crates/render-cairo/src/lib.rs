@@ -16,7 +16,9 @@ impl CairoRenderer {
     fn font_desc(font: &FontSpec, bold: bool, italic: bool) -> FontDescription {
         let mut fd = FontDescription::new();
         fd.set_family(&font.family);
-        fd.set_absolute_size(font.size * pango::SCALE as f64);
+        // `set_size` interpreta el valor en puntos (como GNOME Console); usar
+        // `set_absolute_size` lo tomaba como píxeles y dejaba la letra chica.
+        fd.set_size((font.size * pango::SCALE as f64).round() as i32);
         if bold {
             fd.set_weight(pango::Weight::Bold);
         }
@@ -84,14 +86,6 @@ impl TextRenderer for CairoRenderer {
                 let x = col as f64 * cw;
                 let y = row as f64 * ch;
 
-                ctx.set_source_rgb(
-                    bg.r as f64 / 255.0,
-                    bg.g as f64 / 255.0,
-                    bg.b as f64 / 255.0,
-                );
-                ctx.rectangle(x, y, cw, ch);
-                ctx.fill().ok();
-
                 let mut end = col + 1;
                 let mut text = String::new();
                 if !cell.attrs.hidden {
@@ -124,6 +118,15 @@ impl TextRenderer for CairoRenderer {
                     }
                     end += 1;
                 }
+
+                // El fondo cubre todo el tramo, no solo la primera celda.
+                ctx.set_source_rgb(
+                    bg.r as f64 / 255.0,
+                    bg.g as f64 / 255.0,
+                    bg.b as f64 / 255.0,
+                );
+                ctx.rectangle(x, y, (end - col) as f64 * cw, ch);
+                ctx.fill().ok();
 
                 if !text.is_empty() {
                     layout.set_text(&text);
@@ -249,6 +252,45 @@ mod tests {
             )
         );
         assert_eq!((bg.0, bg.1, bg.2), (theme.bg.r, theme.bg.g, theme.bg.b));
+    }
+
+    #[test]
+    fn background_covers_whole_run() {
+        let (mut s, ctx) = surface(120, 60);
+        let r = CairoRenderer::new();
+        let theme = Theme::default();
+        let m = r.metrics(&ctx, &FontSpec::default());
+        let mut snap = blank_snapshot(6, 1);
+        snap.cursor.visible = false;
+        let run_bg = Color::Rgb(Rgb::new(10, 20, 30));
+        for cell in snap.cells.iter_mut() {
+            cell.bg = run_bg;
+        }
+        r.paint(&ctx, &snap, &theme, &PaintOpts::default());
+        drop(ctx);
+        for col in 0..6 {
+            let x = (m.width * (col as f64 + 0.5)) as i32;
+            let p = pixel(&mut s, x, (m.height * 0.5) as i32);
+            assert_eq!((p.0, p.1, p.2), (10, 20, 30), "cell {col}");
+        }
+    }
+
+    #[test]
+    fn font_size_is_in_points() {
+        let (_s, ctx) = surface(200, 100);
+        let r = CairoRenderer::new();
+        let small = FontSpec {
+            family: "monospace".into(),
+            size: 8.0,
+        };
+        let large = FontSpec {
+            family: "monospace".into(),
+            size: 11.0,
+        };
+        let ms = r.metrics(&ctx, &small);
+        let ml = r.metrics(&ctx, &large);
+        assert!(ml.width > ms.width);
+        assert!(ml.height > ms.height);
     }
 
     #[test]

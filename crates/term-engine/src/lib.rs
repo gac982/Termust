@@ -140,7 +140,15 @@ impl TerminalEngine for AlacrittyEngine {
                 alt_screen: content.mode.contains(TermMode::ALT_SCREEN),
                 bracketed_paste: content.mode.contains(TermMode::BRACKETED_PASTE),
                 app_cursor: content.mode.contains(TermMode::APP_CURSOR),
-                mouse_reporting: content.mode.intersects(TermMode::MOUSE_MODE),
+                mouse_click: content.mode.intersects(
+                    TermMode::MOUSE_REPORT_CLICK | TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION,
+                ),
+                mouse_drag: content
+                    .mode
+                    .intersects(TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION),
+                mouse_motion: content.mode.contains(TermMode::MOUSE_MOTION),
+                sgr_mouse: content.mode.contains(TermMode::SGR_MOUSE),
+                utf8_mouse: content.mode.contains(TermMode::UTF8_MOUSE),
                 show_cursor: content.mode.contains(TermMode::SHOW_CURSOR),
             },
             display_offset: content.display_offset,
@@ -282,6 +290,31 @@ mod tests {
         assert!(!s.modes.alt_screen);
         assert!(!s.modes.bracketed_paste);
         assert!(s.cursor.visible);
+    }
+
+    #[test]
+    fn mouse_modes_are_detailed() {
+        let mut e = engine();
+        e.feed(b"\x1b[?1002h\x1b[?1006h");
+        let s = e.snapshot();
+        assert!(s.modes.reports_mouse());
+        assert!(s.modes.mouse_click);
+        assert!(s.modes.mouse_drag);
+        assert!(!s.modes.mouse_motion);
+        assert!(s.modes.sgr_mouse);
+        assert!(!s.modes.utf8_mouse);
+
+        e.feed(b"\x1b[?1002l\x1b[?1003h\x1b[?1006l\x1b[?1005h");
+        let s = e.snapshot();
+        assert!(s.modes.mouse_click);
+        assert!(s.modes.mouse_drag);
+        assert!(s.modes.mouse_motion);
+        assert!(!s.modes.sgr_mouse);
+        assert!(s.modes.utf8_mouse);
+
+        e.feed(b"\x1b[?1000l\x1b[?1003l\x1b[?1005l");
+        let s = e.snapshot();
+        assert!(!s.modes.reports_mouse());
     }
 
     #[test]

@@ -34,6 +34,24 @@ pub struct FontSpec {
     pub size: f64,
 }
 
+impl FontSpec {
+    /// Parsea el formato de `org.gnome.desktop.interface monospace-font-name`
+    /// (`"Hack Nerd Font 11"`). Devuelve `None` si no se puede interpretar.
+    pub fn parse_pango(value: &str) -> Option<Self> {
+        let value = value.trim();
+        let (family, size) = value.rsplit_once(' ')?;
+        let family = family.trim();
+        let size: f64 = size.trim().parse().ok()?;
+        if family.is_empty() || !size.is_finite() || size <= 0.0 {
+            return None;
+        }
+        Some(Self {
+            family: family.to_string(),
+            size,
+        })
+    }
+}
+
 impl Default for FontSpec {
     fn default() -> Self {
         Self {
@@ -180,6 +198,20 @@ mod tests {
             Rgb::new(255, 255, 255)
         );
         assert_eq!(resolve_color(Color::Indexed(232), &t), Rgb::new(8, 8, 8));
+    }
+
+    #[test]
+    fn parse_pango_font_names() {
+        let f = FontSpec::parse_pango("Hack Nerd Font 11").unwrap();
+        assert_eq!(f.family, "Hack Nerd Font");
+        assert_eq!(f.size, 11.0);
+        let f = FontSpec::parse_pango("Adwaita Mono 10.5").unwrap();
+        assert_eq!(f.family, "Adwaita Mono");
+        assert_eq!(f.size, 10.5);
+        assert!(FontSpec::parse_pango("monospace").is_none());
+        assert!(FontSpec::parse_pango("Hack 0").is_none());
+        assert!(FontSpec::parse_pango(" 11").is_none());
+        assert!(FontSpec::parse_pango("").is_none());
     }
 
     #[test]

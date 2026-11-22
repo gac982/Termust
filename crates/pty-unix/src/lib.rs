@@ -78,34 +78,54 @@ impl PtySpawner for UnixPtySpawner {
             return Err(PtyError::Spawn("invalid size".into()));
         }
 
-        let mut master: libc::c_int = -1;
-        let mut slave: libc::c_int = -1;
         let ws = libc::winsize {
             ws_row: spec.size.rows as u16,
             ws_col: spec.size.cols as u16,
             ws_xpixel: 0,
             ws_ypixel: 0,
         };
-        let rc = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null(),
-                &ws,
-            )
-        };
-        if rc != 0 {
+        // O_CLOEXEC atómico: un fork concurrente de otra pestaña no puede
+        // heredar este master.
+        let master = unsafe { libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC) };
+        if master < 0 {
             return Err(PtyError::Io(std::io::Error::last_os_error().to_string()));
         }
-        unsafe {
-            let flags = libc::fcntl(master, libc::F_GETFL);
-            if flags >= 0 {
-                libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        let setup = unsafe {
+            if libc::grantpt(master) != 0 || libc::unlockpt(master) != 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                let mut name = [0 as libc::c_char; 128];
+                if libc::ptsname_r(master, name.as_mut_ptr(), name.len()) != 0 {
+                    Err(std::io::Error::last_os_error())
+                } else {
+                    let slave = libc::open(
+                        name.as_ptr(),
+                        libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+                    );
+                    if slave < 0 {
+                        Err(std::io::Error::last_os_error())
+                    } else {
+                        libc::ioctl(master, libc::TIOCSWINSZ, &ws);
+                        let flags = libc::fcntl(master, libc::F_GETFL);
+                        if flags >= 0 {
+                            libc::fcntl(master, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                        }
+                        Ok(slave)
+                    }
+                }
             }
-        }
-        let master_file = unsafe { File::from_raw_fd(master as RawFd) };
-        let slave_file = unsafe { File::from_raw_fd(slave as RawFd) };
+        };
+        let slave = match setup {
+            Ok(slave) => slave,
+            Err(e) => {
+                unsafe {
+                    libc::close(master);
+                }
+                return Err(PtyError::Io(e.to_string()));
+            }
+        };
+        let master_file = unsafe { File::from_raw_fd(master) };
+        let slave_file = unsafe { File::from_raw_fd(slave) };
 
         let mut cmd = Command::new(&spec.argv[0]);
         cmd.args(&spec.argv[1..]);
@@ -464,11 +484,62 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_interrupts_foreground_process() {
+        let spawner = UnixPtySpawner::new().unwrap();
+        let mut handle = spawner
+            .spawn(spec(&[
+                "/bin/sh",
+                "-c",
+                "trap 'echo GOTINT; exit 0' INT; sleep 30",
+            ]))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        handle.session.write(&[3]).unwrap();
+        let (out, code) = collect(&mut handle, true);
+        assert!(out.contains("GOTINT"), "out={out:?} code={code:?}");
+    }
+
+    #[test]
     fn exit_code_propagates() {
         let spawner = UnixPtySpawner::new().unwrap();
         let mut handle = spawner.spawn(spec(&["/bin/sh", "-c", "exit 7"])).unwrap();
         let (_, code) = collect(&mut handle, true);
         assert_eq!(code, Some(7));
+    }
+
+    fn count_ptmx() -> usize {
+        std::fs::read_dir("/proc/self/fd")
+            .map(|dir| {
+                dir.flatten()
+                    .filter(|e| {
+                        std::fs::read_link(e.path())
+                            .map(|p| p.to_string_lossy().contains("ptmx"))
+                            .unwrap_or(false)
+                    })
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn child_does_not_inherit_the_master_fd() {
+        // El proceso de test puede traer ptmx heredados del entorno; lo que
+        // importa es que el master de ESTE spawner no se sume a esa base.
+        let baseline = count_ptmx();
+        let dir = std::env::temp_dir().join(format!("termust-fds-{}", std::process::id()));
+        let file = dir.join("fds.txt");
+        let _ = std::fs::create_dir_all(&dir);
+        let script = format!("ls -l /proc/self/fd > {} 2>&1", file.display());
+        let spawner = UnixPtySpawner::new().unwrap();
+        let mut handle = spawner.spawn(spec(&["/bin/sh", "-c", &script])).unwrap();
+        let _ = collect(&mut handle, true);
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        let child = text.matches("ptmx").count();
+        assert!(
+            child <= baseline,
+            "el hijo heredó el master (baseline {baseline}, hijo {child}):\n{text}"
+        );
     }
 
     #[test]

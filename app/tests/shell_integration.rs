@@ -19,7 +19,7 @@ fn run_shell(
     shim: &Path,
 ) -> String {
     let si = termust_host_exec::materialize_in(shim).unwrap();
-    let cmd = termust_host_exec::shell_command(Path::new(shell), &si, false);
+    let cmd = termust_host_exec::shell_command(Path::new(shell), &si, false, None, None);
     let mut env = cmd.env;
     env.push((OsString::from("HOME"), home.as_os_str().to_owned()));
     env.extend(extra_env);

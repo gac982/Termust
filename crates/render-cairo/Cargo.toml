@@ -13,3 +13,6 @@ cairo-rs.workspace = true
 pango.workspace = true
 pangocairo.workspace = true
 
+
+[dev-dependencies]
+termust-term-engine.workspace = true
