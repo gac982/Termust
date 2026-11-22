@@ -4,7 +4,45 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-22
+
+Primera versión estable de Termust: terminal para GNOME con pestañas, paneles,
+archivos, visor, git, agentes, temas, historial y una base de accesibilidad.
+
+### Added
+
+- Motor VT sobre `alacritty_terminal` con OSC 7/133/633, scrollback y conformidad
+  básica; integración bash/zsh sin tocar dotfiles.
+- Pestañas horizontales y verticales, restauración de sesión atómica, splits
+  hasta 4 paneles, ratios y foco persistidos, confirmación de cierre.
+- Panel de archivos lazy con watch, type-ahead, colores/iconos y acciones de
+  solo lectura; panel de git local (status, stage/unstage, diff, commit) y
+  remotos con push SSH/HTTPS, vault cifrado y keyring del host.
+- Visor de solo lectura con tree-sitter para 14 lenguajes, folds, outline,
+  búsqueda, límites de tamaño y garantía de no escritura.
+- Historial de comandos de 10k/2 MB, importación lazy y popup con búsqueda;
+  temas (37 paletas), transparencia, zoom y preferencias Adwaita.
+- Detección de agentes `opencode`, `pi` y `agy` con reglas TOML, estados y barra
+  de agente; HIG (About/Shortcuts/Overview), accesibilidad básica e i18n es/en.
+- Presupuesto de performance medido: hard limits verdes local y Flatpak, GL
+  descartado por PSS y cap global de scrollback de 64 MB.
+
+### Security
+
+- Vault SQLite con XChaCha20-Poly1305, AAD por origen, zeroize y clave maestra
+  en Secret Service; remotes validados y push sin secretos en argv/env/URL/disco.
+- Sin telemetría, sin lectura de `~/.ssh` ni claves; Flatpak con `--filesystem=host`
+  documentado y `flatpak-spawn` encapsulado.
+
+### Known limitations
+
+- Cobertura i18n parcial (superficie principal; quedan strings en módulos).
+- Orca no verificado end-to-end; screenshots de AppStream pendientes.
+- Caché de render/GL no adoptada; Flatpak está por encima de los objetivos de
+  PSS/arranque aunque dentro de los hard limits.
+- Sin staging por hunk, sin force push, sin edición de archivos.
+
+## [0.1.0] - 2026-11-17
 
 ### Added
 

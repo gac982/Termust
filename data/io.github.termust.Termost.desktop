@@ -1,6 +1,7 @@
 [Desktop Entry]
 Name=Termust
-Comment=Terminal para GNOME
+Comment=Terminal for GNOME
+Comment[es]=Terminal para GNOME
 Exec=termust
 Icon=io.github.termust.Termost
 Terminal=false

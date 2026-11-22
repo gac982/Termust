@@ -9,3 +9,4 @@
 .DS_Store
 /flatpak/build-src/
 /data/locale/
+/dist/
