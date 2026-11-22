@@ -20,6 +20,7 @@ termust-host-exec.workspace = true
 termust-store.workspace = true
 termust-text-render.workspace = true
 pangocairo.workspace = true
+cairo-rs.workspace = true
 termust-fs-local.workspace = true
 termust-git-local.workspace = true
 libc.workspace = true

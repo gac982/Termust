@@ -307,6 +307,13 @@ impl TabManager {
             host_pty.as_ref(),
         );
         let size = Size::new(80, 24);
+        let panes = self
+            .entries
+            .iter()
+            .map(|entry| entry.panes.len())
+            .sum::<usize>()
+            + 1;
+        let history = scrollback_lines(panes);
         let handle = self
             .spawner
             .spawn(SpawnSpec {
@@ -316,7 +323,7 @@ impl TabManager {
                 size,
             })
             .map_err(|e| e.to_string())?;
-        let engine = AlacrittyEngine::new(size, 2_000);
+        let engine = AlacrittyEngine::new(size, history);
         let renderer = CairoRenderer::new();
         let view = TerminalView::new(
             Box::new(engine),
@@ -1000,6 +1007,33 @@ impl TabManager {
         }
     }
 
+    /// Cap global de scrollback: 64 MB, repartidos entre todos los paneles.
+    pub fn ready_views(&self) -> usize {
+        self.entries
+            .iter()
+            .flat_map(|entry| entry.panes.values())
+            .filter(|view| view.history_ready())
+            .count()
+    }
+
+    pub fn history_total(&self) -> usize {
+        self.entries
+            .iter()
+            .flat_map(|entry| entry.panes.values())
+            .map(|view| view.history_size())
+            .sum()
+    }
+
+    pub fn apply_scrollback_budget(&self) {
+        let panes: usize = self.entries.iter().map(|entry| entry.panes.len()).sum();
+        let lines = scrollback_lines(panes.max(1));
+        for entry in &self.entries {
+            for view in entry.panes.values() {
+                view.set_history_limit(lines);
+            }
+        }
+    }
+
     pub fn update_titles(&mut self) {
         let selected = self.tab_view.selected_page().map(|p| p.as_ptr());
         struct Update {
@@ -1496,5 +1530,33 @@ mod tests {
         };
         assert!(restored_session(&snapshot, &dir).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+/// Líneas de scrollback por panel para respetar 64 MB globales. La medición
+/// real con la grilla de alacritty da ≈4 KB/línea (capacidad redondeada a
+/// potencias de dos), así que el presupuesto usa 4 KB.
+pub fn scrollback_lines(panes: usize) -> usize {
+    const BUDGET: usize = 64 * 1024 * 1024;
+    const BYTES_PER_LINE: usize = 4 * 1024;
+    (BUDGET / (BYTES_PER_LINE * panes.max(1))).clamp(500, 2_000)
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::scrollback_lines;
+
+    #[test]
+    fn scrollback_budget_caps_global_history() {
+        for panes in [1, 4, 9, 16, 30] {
+            let lines = scrollback_lines(panes);
+            assert!((500..=2_000).contains(&lines));
+            assert!(
+                lines * 4 * 1024 * panes <= 64 * 1024 * 1024,
+                "{panes} paneles: {lines} líneas"
+            );
+        }
+        assert_eq!(scrollback_lines(9), 1_820);
+        assert!(scrollback_lines(30) < 2_000);
     }
 }
