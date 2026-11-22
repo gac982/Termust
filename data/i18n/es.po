@@ -1,0 +1,299 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: termust 0.14.0\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+
+msgid "Dividir a la derecha"
+msgstr "Dividir a la derecha"
+
+msgid "Dividir abajo"
+msgstr "Dividir abajo"
+
+msgid "Diseños"
+msgstr "Diseños"
+
+msgid "Dos columnas"
+msgstr "Dos columnas"
+
+msgid "Dos filas"
+msgstr "Dos filas"
+
+msgid "Tres columnas"
+msgstr "Tres columnas"
+
+msgid "Cuadrícula 2×2"
+msgstr "Cuadrícula 2×2"
+
+msgid "Tema de la pestaña"
+msgstr "Tema de la pestaña"
+
+msgid "Tema global"
+msgstr "Tema global"
+
+msgid "Preferencias"
+msgstr "Preferencias"
+
+msgid "Atajos de teclado"
+msgstr "Atajos de teclado"
+
+msgid "Acerca de Termust"
+msgstr "Acerca de Termust"
+
+msgid "Historial de comandos"
+msgstr "Historial de comandos"
+
+msgid "Borrar historial"
+msgstr "Borrar historial"
+
+msgid "Renombrar pestaña"
+msgstr "Renombrar pestaña"
+
+msgid "Cerrar panel"
+msgstr "Cerrar panel"
+
+msgid "Apariencia"
+msgstr "Apariencia"
+
+msgid "Tema"
+msgstr "Tema"
+
+msgid "Sigue al sistema o fuerza una paleta"
+msgstr "Sigue al sistema o fuerza una paleta"
+
+msgid "Tema oscuro"
+msgstr "Tema oscuro"
+
+msgid "Se usa cuando el sistema está en modo oscuro"
+msgstr "Se usa cuando el sistema está en modo oscuro"
+
+msgid "Tema claro"
+msgstr "Tema claro"
+
+msgid "Se usa cuando el sistema está en modo claro"
+msgstr "Se usa cuando el sistema está en modo claro"
+
+msgid "Contraste"
+msgstr "Contraste"
+
+msgid "Contraste del tema"
+msgstr "Contraste del tema"
+
+msgid "Transparencia"
+msgstr "Transparencia"
+
+msgid "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque."
+msgstr "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque."
+
+msgid "Transparencia del fondo"
+msgstr "Transparencia del fondo"
+
+msgid "Solo el fondo; sin desenfoque"
+msgstr "Solo el fondo; sin desenfoque"
+
+msgid "Desactivado por alto contraste"
+msgstr "Desactivado por alto contraste"
+
+msgid "Texto"
+msgstr "Texto"
+
+msgid "Zoom de fuente"
+msgstr "Zoom de fuente"
+
+msgid "General"
+msgstr "General"
+
+msgid "Sesión"
+msgstr "Sesión"
+
+msgid "Restaurar la sesión al iniciar"
+msgstr "Restaurar la sesión al iniciar"
+
+msgid "Pestañas, paneles y directorios de la última sesión"
+msgstr "Pestañas, paneles y directorios de la última sesión"
+
+msgid "Temas importados"
+msgstr "Temas importados"
+
+msgid "Errores de importación"
+msgstr "Errores de importación"
+
+msgid "Los archivos de ~/.config/termust/themes se ignoraron."
+msgstr "Los archivos de ~/.config/termust/themes se ignoraron."
+
+msgid "Buscar en el historial…"
+msgstr "Buscar en el historial…"
+
+msgid "No hay pestaña activa"
+msgstr "No hay pestaña activa"
+
+msgid "El comando es multilínea y el shell no soporta bracketed paste."
+msgstr "El comando es multilínea y el shell no soporta bracketed paste."
+
+msgid "Historial de comandos borrado"
+msgstr "Historial de comandos borrado"
+
+msgid "No se pudo iniciar el terminal"
+msgstr "No se pudo iniciar el terminal"
+
+msgid "Sesión restaurada. Los procesos no se restauran."
+msgstr "Sesión restaurada. Los procesos no se restauran."
+
+msgid "La sesión guardada no es válida; se inició una nueva."
+msgstr "La sesión guardada no es válida; se inició una nueva."
+
+msgid "No se pudo leer la sesión guardada; se inició una nueva."
+msgstr "No se pudo leer la sesión guardada; se inició una nueva."
+
+msgid "La sesión guardada es de una versión más nueva; se ignoró."
+msgstr "La sesión guardada es de una versión más nueva; se ignoró."
+
+msgid "No hay pestaña activa."
+msgstr "No hay pestaña activa."
+
+msgid "El visor estará disponible próximamente."
+msgstr "El visor estará disponible próximamente."
+
+msgid "Cerrar con proceso activo"
+msgstr "Cerrar con proceso activo"
+
+msgid "Hay un proceso en ejecución. Si cierras, se terminará."
+msgstr "Hay un proceso en ejecución. Si cierras, se terminará."
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Close"
+msgstr "Close"
+
+msgid "Rename"
+msgstr "Rename"
+
+msgid "Pestañas"
+msgstr "Pestañas"
+
+msgid "Paneles"
+msgstr "Paneles"
+
+msgid "Aplicación"
+msgstr "Aplicación"
+
+msgid "Nueva pestaña"
+msgstr "Nueva pestaña"
+
+msgid "Cerrar pestaña"
+msgstr "Cerrar pestaña"
+
+msgid "Pestaña siguiente"
+msgstr "Pestaña siguiente"
+
+msgid "Pestaña anterior"
+msgstr "Pestaña anterior"
+
+msgid "Mover pestaña a la izquierda"
+msgstr "Mover pestaña a la izquierda"
+
+msgid "Mover pestaña a la derecha"
+msgstr "Mover pestaña a la derecha"
+
+msgid "Dividir panel a la derecha"
+msgstr "Dividir panel a la derecha"
+
+msgid "Dividir panel abajo"
+msgstr "Dividir panel abajo"
+
+msgid "Enfocar panel a la izquierda"
+msgstr "Enfocar panel a la izquierda"
+
+msgid "Enfocar panel a la derecha"
+msgstr "Enfocar panel a la derecha"
+
+msgid "Enfocar panel arriba"
+msgstr "Enfocar panel arriba"
+
+msgid "Enfocar panel abajo"
+msgstr "Enfocar panel abajo"
+
+msgid "Redimensionar a la izquierda"
+msgstr "Redimensionar a la izquierda"
+
+msgid "Redimensionar a la derecha"
+msgstr "Redimensionar a la derecha"
+
+msgid "Redimensionar arriba"
+msgstr "Redimensionar arriba"
+
+msgid "Redimensionar abajo"
+msgstr "Redimensionar abajo"
+
+msgid "Zoom acercar"
+msgstr "Zoom acercar"
+
+msgid "Zoom alejar"
+msgstr "Zoom alejar"
+
+msgid "Restablecer zoom"
+msgstr "Restablecer zoom"
+
+msgid "Pantalla completa"
+msgstr "Pantalla completa"
+
+msgid "Panel de archivos"
+msgstr "Panel de archivos"
+
+msgid "Pestañas verticales"
+msgstr "Pestañas verticales"
+
+msgid "Git"
+msgstr "Git"
+
+msgid "Atajos"
+msgstr "Atajos"
+
+msgid "Preferencias del terminal"
+msgstr "Preferencias del terminal"
+
+msgid "Terminal"
+msgstr "Terminal"
+
+msgid "Documentación"
+msgstr "Documentación"
+
+msgid "Sitio web"
+msgstr "Sitio web"
+
+msgid "Reportar un problema"
+msgstr "Reportar un problema"
+
+msgid "Versión"
+msgstr "Versión"
+
+msgid "Licencia"
+msgstr "Licencia"
+
+msgid "Directorio superior"
+msgstr "Directorio superior"
+
+msgid "Opciones del panel"
+msgstr "Opciones del panel"
+
+msgid "Buscar"
+msgstr "Buscar"
+
+msgid "Esquema del archivo"
+msgstr "Esquema del archivo"
+
+msgid "Abrir en editor externo"
+msgstr "Abrir en editor externo"
+
+msgid "Actualizar"
+msgstr "Actualizar"
+
+msgid "Volver al terminal"
+msgstr "Volver al terminal"
+
+msgid "Vista general de pestañas"
+msgstr "Vista general de pestañas"

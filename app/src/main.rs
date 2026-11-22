@@ -2,6 +2,7 @@ mod appearance;
 mod files;
 mod git_panel;
 mod history;
+mod i18n;
 mod preferences;
 mod remotes;
 mod tab_sidebar;
@@ -77,6 +78,7 @@ fn main() -> glib::ExitCode {
 }
 
 fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
+    i18n::init();
     let started = std::time::Instant::now();
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -316,6 +318,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .tooltip_text("Nueva pestaña")
         .build();
     new_tab.add_css_class("flat");
+    new_tab.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Nueva pestaña"))]);
     {
         let manager = manager.clone();
         let home = home.clone();
@@ -333,21 +336,37 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .active(files_visible)
         .build();
     files_button.add_css_class("flat");
+    files_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+        "Panel de archivos",
+    ))]);
     let tabs_button = gtk::ToggleButton::builder()
         .icon_name("view-list-symbolic")
         .tooltip_text("Pestañas verticales (Ctrl+Shift+L)")
         .active(vertical_visible)
         .build();
     tabs_button.add_css_class("flat");
+    tabs_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+        "Pestañas verticales",
+    ))]);
     let git_button = gtk::ToggleButton::builder()
         .label("Git")
         .tooltip_text("Git (Ctrl+Shift+G)")
         .build();
     git_button.add_css_class("flat");
+    git_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Git"))]);
     header.pack_start(&files_button);
     header.pack_start(&new_tab);
     header.pack_start(&tabs_button);
     header.pack_start(&git_button);
+    let overview_button = gtk::ToggleButton::builder()
+        .icon_name("view-grid-symbolic")
+        .tooltip_text(i18n::tr("Vista general de pestañas"))
+        .build();
+    overview_button.add_css_class("flat");
+    overview_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+        "Vista general de pestañas",
+    ))]);
+    header.pack_start(&overview_button);
     let tab_bar = manager.borrow().tab_bar().clone();
     tab_bar.set_hexpand(true);
     tab_bar.set_halign(gtk::Align::Fill);
@@ -421,8 +440,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     outer_split.set_sidebar_width_fraction(0.18);
     outer_split.set_show_sidebar(vertical_visible);
 
+    let tab_overview = libadwaita::TabOverview::new();
+    tab_overview.set_view(Some(manager.borrow().tab_view()));
+    tab_overview.set_enable_new_tab(false);
+    tab_overview.set_enable_search(false);
+
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&outer_split));
+    overlay.add_overlay(&tab_overview);
     viewer.widget().set_halign(gtk::Align::Fill);
     viewer.widget().set_valign(gtk::Align::Fill);
     overlay.add_overlay(viewer.widget());
@@ -430,6 +455,37 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     git_panel.widget().set_valign(gtk::Align::Fill);
     overlay.add_overlay(git_panel.widget());
     toolbar.set_content(Some(&overlay));
+    {
+        let overview = tab_overview.clone();
+        overview_button.connect_toggled(move |button| {
+            overview.set_open(button.is_active());
+        });
+        let button = overview_button.clone();
+        tab_overview.connect_notify_local(Some("open"), move |overview, _| {
+            if button.is_active() != overview.is_open() {
+                button.set_active(overview.is_open());
+            }
+        });
+    }
+
+    {
+        let condition = libadwaita::BreakpointCondition::parse("max-width: 720px")
+            .expect("condición de breakpoint");
+        let breakpoint = libadwaita::Breakpoint::new(condition);
+        let files = files_split.clone();
+        let outer = outer_split.clone();
+        breakpoint.connect_apply(move |_| {
+            files.set_collapsed(true);
+            outer.set_collapsed(true);
+        });
+        let files = files_split.clone();
+        let outer = outer_split.clone();
+        breakpoint.connect_unapply(move |_| {
+            files.set_collapsed(false);
+            outer.set_collapsed(false);
+        });
+        window.add_breakpoint(breakpoint);
+    }
 
     {
         let split = files_split.clone();
@@ -508,6 +564,18 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             });
         }
         group.add_action(&prefs_action);
+        let shortcuts_action = gtk::gio::SimpleAction::new("shortcuts", None);
+        {
+            let window = window.clone();
+            shortcuts_action.connect_activate(move |_, _| show_shortcuts(&window));
+        }
+        group.add_action(&shortcuts_action);
+        let about_action = gtk::gio::SimpleAction::new("about", None);
+        {
+            let window = window.clone();
+            about_action.connect_activate(move |_, _| show_about(&window));
+        }
+        group.add_action(&about_action);
         let tab_theme = gtk::gio::SimpleAction::new("tab-theme", Some(glib::VariantTy::STRING));
         {
             let manager = manager.clone();
@@ -594,16 +662,34 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         window.insert_action_group("pane", Some(&group));
 
         let menu = gtk::gio::Menu::new();
-        menu.append(Some("Dividir a la derecha"), Some("pane.split-right"));
-        menu.append(Some("Dividir abajo"), Some("pane.split-down"));
+        menu.append(
+            Some(i18n::tr("Dividir a la derecha").as_str()),
+            Some("pane.split-right"),
+        );
+        menu.append(
+            Some(i18n::tr("Dividir abajo").as_str()),
+            Some("pane.split-down"),
+        );
         let designs = gtk::gio::Menu::new();
-        designs.append(Some("Dos columnas"), Some("pane.preset-two-columns"));
-        designs.append(Some("Dos filas"), Some("pane.preset-two-rows"));
-        designs.append(Some("Tres columnas"), Some("pane.preset-three-columns"));
-        designs.append(Some("Cuadrícula 2×2"), Some("pane.preset-grid"));
-        menu.append_submenu(Some("Diseños"), &designs);
+        designs.append(
+            Some(i18n::tr("Dos columnas").as_str()),
+            Some("pane.preset-two-columns"),
+        );
+        designs.append(
+            Some(i18n::tr("Dos filas").as_str()),
+            Some("pane.preset-two-rows"),
+        );
+        designs.append(
+            Some(i18n::tr("Tres columnas").as_str()),
+            Some("pane.preset-three-columns"),
+        );
+        designs.append(
+            Some(i18n::tr("Cuadrícula 2×2").as_str()),
+            Some("pane.preset-grid"),
+        );
+        menu.append_submenu(Some(i18n::tr("Diseños").as_str()), &designs);
         let themes_menu = gtk::gio::Menu::new();
-        let global_theme = gtk::gio::MenuItem::new(Some("Tema global"), None);
+        let global_theme = gtk::gio::MenuItem::new(Some(i18n::tr("Tema global").as_str()), None);
         global_theme
             .set_action_and_target_value(Some("pane.tab-theme"), Some(&AUTO_THEME.to_variant()));
         themes_menu.append_item(&global_theme);
@@ -612,16 +698,40 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             item.set_action_and_target_value(Some("pane.tab-theme"), Some(&theme.id.to_variant()));
             themes_menu.append_item(&item);
         }
-        menu.append_submenu(Some("Tema de la pestaña"), &themes_menu);
-        menu.append(Some("Preferencias"), Some("pane.preferences"));
-        menu.append(Some("Historial de comandos"), Some("pane.history"));
-        menu.append(Some("Borrar historial"), Some("pane.clear-history"));
-        menu.append(Some("Renombrar pestaña"), Some("pane.rename-tab"));
-        menu.append(Some("Cerrar panel"), Some("pane.close-pane"));
+        menu.append_submenu(Some(i18n::tr("Tema de la pestaña").as_str()), &themes_menu);
+        menu.append(
+            Some(i18n::tr("Preferencias").as_str()),
+            Some("pane.preferences"),
+        );
+        menu.append(
+            Some(i18n::tr("Atajos de teclado").as_str()),
+            Some("pane.shortcuts"),
+        );
+        menu.append(
+            Some(i18n::tr("Acerca de Termust").as_str()),
+            Some("pane.about"),
+        );
+        menu.append(
+            Some(i18n::tr("Historial de comandos").as_str()),
+            Some("pane.history"),
+        );
+        menu.append(
+            Some(i18n::tr("Borrar historial").as_str()),
+            Some("pane.clear-history"),
+        );
+        menu.append(
+            Some(i18n::tr("Renombrar pestaña").as_str()),
+            Some("pane.rename-tab"),
+        );
+        menu.append(
+            Some(i18n::tr("Cerrar panel").as_str()),
+            Some("pane.close-pane"),
+        );
         let menu_button = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
             .tooltip_text("Menú")
             .build();
+        menu_button.update_property(&[gtk::accessible::Property::Label("Menú")]);
         menu_button.set_menu_model(Some(&menu));
         header.pack_end(&menu_button);
     }
@@ -639,11 +749,19 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let files_button = files_button.clone();
         let tabs_button = tabs_button.clone();
         let viewer = viewer.clone();
+        let tab_overview = tab_overview.clone();
         let git_button = git_button.clone();
         let git_panel = git_panel.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
+            if tab_overview.is_open() {
+                if keyval == gdk::Key::Escape {
+                    tab_overview.set_open(false);
+                    return glib::Propagation::Stop;
+                }
+                return glib::Propagation::Proceed;
+            }
             if viewer.is_open() {
                 if keyval == gdk::Key::Escape {
                     viewer.close();
@@ -2368,6 +2486,49 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         app.quit();
     }
 
+    if std::env::var_os("TERMUST_I18N_TEST").is_some() {
+        eprintln!(
+            "termust-i18n-test: preferencias={:?} panel={:?}",
+            i18n::tr("Preferencias"),
+            i18n::tr("Panel de archivos")
+        );
+        app.quit();
+        return window;
+    }
+
+    if std::env::var_os("TERMUST_HIG_TEST").is_some() {
+        let window = window.clone();
+        let overview_button = overview_button.clone();
+        let tab_overview = tab_overview.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(700), move || {
+            show_shortcuts(&window);
+            let window2 = window.clone();
+            let overview_button2 = overview_button.clone();
+            let tab_overview2 = tab_overview.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                show_about(&window2);
+                overview_button2.set_active(true);
+                let tab_overview3 = tab_overview2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                    let overview = tab_overview3.is_open();
+                    tab_overview3.set_open(false);
+                    eprintln!(
+                        "termust-hig-test: atajos+acerca+overview={} {}",
+                        if overview { "vista" } else { "cerrada" },
+                        if overview { "ok" } else { "FAIL" }
+                    );
+                    if !overview {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -2741,4 +2902,70 @@ fn process_cpu_ticks() -> u64 {
     let utime: u64 = fields[11].parse().unwrap_or(0);
     let stime: u64 = fields[12].parse().unwrap_or(0);
     utime + stime
+}
+
+fn show_shortcuts(window: &ApplicationWindow) {
+    let dialog = libadwaita::ShortcutsDialog::new();
+    dialog.set_title(&i18n::tr("Atajos de teclado"));
+    let tabs = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Pestañas")));
+    for (title, accel) in [
+        ("Nueva pestaña", "<Control><Shift>t"),
+        ("Cerrar pestaña", "<Control><Shift>w"),
+        ("Pestaña siguiente", "<Control>Page_Down"),
+        ("Pestaña anterior", "<Control>Page_Up"),
+        ("Mover pestaña a la izquierda", "<Control><Shift>Page_Up"),
+        ("Mover pestaña a la derecha", "<Control><Shift>Page_Down"),
+    ] {
+        tabs.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
+    }
+    dialog.add(tabs);
+    let panes = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Paneles")));
+    for (title, accel) in [
+        ("Dividir panel a la derecha", "<Control><Shift>d"),
+        ("Dividir panel abajo", "<Control><Shift>e"),
+        ("Enfocar panel a la izquierda", "<Control><Shift>Left"),
+        ("Enfocar panel a la derecha", "<Control><Shift>Right"),
+        ("Enfocar panel arriba", "<Control><Shift>Up"),
+        ("Enfocar panel abajo", "<Control><Shift>Down"),
+        ("Redimensionar a la izquierda", "<Control><Alt><Shift>Left"),
+        ("Redimensionar a la derecha", "<Control><Alt><Shift>Right"),
+        ("Redimensionar arriba", "<Control><Alt><Shift>Up"),
+        ("Redimensionar abajo", "<Control><Alt><Shift>Down"),
+    ] {
+        panes.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
+    }
+    dialog.add(panes);
+    let app = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Aplicación")));
+    for (title, accel) in [
+        ("Zoom acercar", "<Control>plus"),
+        ("Zoom alejar", "<Control>minus"),
+        ("Restablecer zoom", "<Control>0"),
+        ("Pantalla completa", "F11"),
+        ("Panel de archivos", "F9"),
+        ("Pestañas verticales", "<Control><Shift>l"),
+        ("Git", "<Control><Shift>g"),
+        ("Preferencias", "<Control>comma"),
+        ("Atajos de teclado", "<Control><Shift>question"),
+    ] {
+        app.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
+    }
+    dialog.add(app);
+    dialog.present(Some(window));
+}
+
+fn show_about(window: &ApplicationWindow) {
+    let dialog = libadwaita::AboutDialog::new();
+    dialog.set_application_name("Termust");
+    dialog.set_application_icon(termust_core::APP_ID);
+    dialog.set_version(env!("CARGO_PKG_VERSION"));
+    dialog.set_developer_name("Termust");
+    dialog.set_developers(&["Termust"]);
+    dialog.set_license_type(gtk::License::Gpl30);
+    dialog.set_website("https://github.com/termust/termust");
+    dialog.add_link(&i18n::tr("Sitio web"), "https://github.com/termust/termust");
+    dialog.add_link(
+        &i18n::tr("Reportar un problema"),
+        "https://github.com/termust/termust/issues",
+    );
+    dialog.present(Some(window));
 }

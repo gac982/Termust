@@ -164,6 +164,7 @@ impl TabSidebar {
             let close = gtk::Button::from_icon_name("window-close-symbolic");
             close.add_css_class("flat");
             close.set_tooltip_text(Some("Cerrar pestaña"));
+            close.update_property(&[gtk::accessible::Property::Label("Cerrar pestaña")]);
             close.set_valign(gtk::Align::Center);
             {
                 let manager = self.manager.clone();

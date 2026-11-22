@@ -72,6 +72,7 @@ impl GitPanel {
     pub fn new(toast: libadwaita::ToastOverlay) -> Rc<Self> {
         let back = gtk::Button::from_icon_name("go-previous-symbolic");
         back.add_css_class("flat");
+        back.update_property(&[gtk::accessible::Property::Label("Volver al terminal")]);
         back.set_tooltip_text(Some("Volver al terminal"));
         let repo_label = gtk::Label::new(None);
         repo_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -83,6 +84,7 @@ impl GitPanel {
         branch_label.add_css_class("caption");
         let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
         refresh.add_css_class("flat");
+        refresh.update_property(&[gtk::accessible::Property::Label("Actualizar")]);
         refresh.set_tooltip_text(Some("Actualizar"));
         let remotes_button = gtk::Button::with_label("Remotes");
         remotes_button.add_css_class("flat");

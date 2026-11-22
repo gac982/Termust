@@ -185,6 +185,7 @@ impl FilePanel {
                 .tooltip_text("Directorio superior")
                 .build();
             up.add_css_class("flat");
+            up.update_property(&[gtk::accessible::Property::Label("Directorio superior")]);
 
             let path_label = gtk::Label::new(None);
             path_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -198,6 +199,7 @@ impl FilePanel {
                 .tooltip_text("Opciones del panel")
                 .build();
             menu_button.add_css_class("flat");
+            menu_button.update_property(&[gtk::accessible::Property::Label("Opciones del panel")]);
 
             let header = gtk::Box::new(gtk::Orientation::Horizontal, 4);
             header.append(&up);
