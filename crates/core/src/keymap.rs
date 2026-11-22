@@ -1,3 +1,5 @@
+use crate::tabs::{Direction, SplitOrientation};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     Char(char),
@@ -78,6 +80,8 @@ pub enum Action {
     Fullscreen,
     Shortcuts,
     RenameTab,
+    SplitPane(SplitOrientation),
+    FocusPane(Direction),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -101,18 +105,36 @@ impl Default for KeyConfig {
 
 /// Resuelve un atajo de la app. Devuelve `None` si la tecla debe ir al terminal/TUI.
 pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<Action> {
-    // Sin atajos Alt-only ni Super-only (conflictos con otras apps).
-    if ev.mods.alt || ev.mods.logo {
+    // Sin atajos Alt-only ni Super-only (conflictos con otras apps). Ctrl+Alt
+    // sí se usa para mover el foco entre paneles.
+    if ev.mods.logo || (ev.mods.alt && !ev.mods.ctrl) {
         return None;
     }
     let ctrl = ev.mods.ctrl;
     let shift = ev.mods.shift;
+    let alt = ev.mods.alt;
+
+    if ctrl && alt && !shift {
+        match ev.key {
+            Key::Left => return Some(Action::FocusPane(Direction::Left)),
+            Key::Right => return Some(Action::FocusPane(Direction::Right)),
+            Key::Up => return Some(Action::FocusPane(Direction::Up)),
+            Key::Down => return Some(Action::FocusPane(Direction::Down)),
+            _ => {}
+        }
+    }
 
     if ctrl && shift {
         match ev.key {
             Key::Char(c) if c.eq_ignore_ascii_case(&'t') => return Some(Action::NewTab),
             Key::Char(c) if c.eq_ignore_ascii_case(&'w') && cfg.close_tab => {
                 return Some(Action::CloseTab)
+            }
+            Key::Char(c) if c.eq_ignore_ascii_case(&'d') => {
+                return Some(Action::SplitPane(SplitOrientation::Horizontal))
+            }
+            Key::Char(c) if c.eq_ignore_ascii_case(&'e') => {
+                return Some(Action::SplitPane(SplitOrientation::Vertical))
             }
             Key::PageUp if cfg.move_tabs => return Some(Action::MoveTabLeft),
             Key::PageDown if cfg.move_tabs => return Some(Action::MoveTabRight),
@@ -122,7 +144,7 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
         }
     }
 
-    if ctrl && !shift {
+    if ctrl && !shift && !alt {
         if let Key::Char(c) = ev.key {
             let c = c.to_ascii_lowercase();
             if cfg.tab_numbers {
@@ -282,6 +304,41 @@ mod tests {
     fn f11_is_fullscreen() {
         assert_eq!(press(Key::F(11), Mods::none()), Some(Action::Fullscreen));
         assert_eq!(press(Key::F(11), Mods::ctrl()), None);
+    }
+
+    #[test]
+    fn ctrl_shift_d_and_e_split_panes() {
+        assert_eq!(
+            press(Key::Char('d'), Mods::ctrl_shift()),
+            Some(Action::SplitPane(SplitOrientation::Horizontal))
+        );
+        assert_eq!(
+            press(Key::Char('e'), Mods::ctrl_shift()),
+            Some(Action::SplitPane(SplitOrientation::Vertical))
+        );
+    }
+
+    #[test]
+    fn ctrl_alt_arrows_move_focus() {
+        let mods = Mods {
+            ctrl: true,
+            alt: true,
+            shift: false,
+            logo: false,
+        };
+        assert_eq!(
+            press(Key::Left, mods),
+            Some(Action::FocusPane(Direction::Left))
+        );
+        assert_eq!(
+            press(Key::Right, mods),
+            Some(Action::FocusPane(Direction::Right))
+        );
+        assert_eq!(press(Key::Up, mods), Some(Action::FocusPane(Direction::Up)));
+        assert_eq!(
+            press(Key::Down, mods),
+            Some(Action::FocusPane(Direction::Down))
+        );
     }
 
     #[test]
