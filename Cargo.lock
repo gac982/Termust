@@ -948,6 +948,7 @@ dependencies = [
  "gtk4",
  "libadwaita",
  "termust-core",
+ "termust-fs-local",
  "termust-host-exec",
  "termust-pty-unix",
  "termust-render-cairo",

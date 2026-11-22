@@ -1,6 +1,8 @@
 mod appearance;
+mod files;
 mod history;
 mod preferences;
+mod tab_sidebar;
 mod tabs;
 
 use appearance::{Appearance, AUTO_THEME};
@@ -15,6 +17,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
+use tab_sidebar::TabSidebar;
 use tabs::TabManager;
 use termust_core::history::{HistoryEntry, HistoryIndex, HistorySource};
 use termust_core::keymap::{
@@ -251,14 +254,85 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
         });
     }
+    let files_visible = setting_bool("files-panel", false);
+    let vertical_visible = setting_bool("vertical-tabs", false);
+    let files_button = gtk::ToggleButton::builder()
+        .icon_name("sidebar-show-symbolic")
+        .tooltip_text("Panel de archivos (F9)")
+        .active(files_visible)
+        .build();
+    files_button.add_css_class("flat");
+    let tabs_button = gtk::ToggleButton::builder()
+        .icon_name("view-list-symbolic")
+        .tooltip_text("Pestañas verticales (Ctrl+Shift+L)")
+        .active(vertical_visible)
+        .build();
+    tabs_button.add_css_class("flat");
+    header.pack_start(&files_button);
     header.pack_start(&new_tab);
+    header.pack_start(&tabs_button);
     let tab_bar = manager.borrow().tab_bar().clone();
     tab_bar.set_hexpand(true);
     tab_bar.set_halign(gtk::Align::Fill);
+    tab_bar.set_visible(!vertical_visible);
     header.set_title_widget(Some(&tab_bar));
     let toast_overlay = libadwaita::ToastOverlay::new();
     toast_overlay.set_child(Some(manager.borrow().tab_view()));
-    toolbar.set_content(Some(&toast_overlay));
+
+    let file_panel = files::FilePanel::new(&home, toast_overlay.clone());
+    if files_visible {
+        file_panel.activate();
+    }
+    let files_split = libadwaita::OverlaySplitView::new();
+    files_split.set_sidebar(Some(file_panel.widget()));
+    files_split.set_content(Some(&toast_overlay));
+    files_split.set_sidebar_position(gtk::PackType::Start);
+    files_split.set_min_sidebar_width(220.0);
+    files_split.set_max_sidebar_width(420.0);
+    files_split.set_sidebar_width_fraction(0.22);
+    files_split.set_show_sidebar(files_visible);
+
+    let tab_sidebar = TabSidebar::new(&manager);
+    let outer_split = libadwaita::OverlaySplitView::new();
+    outer_split.set_sidebar(Some(tab_sidebar.widget()));
+    outer_split.set_content(Some(&files_split));
+    outer_split.set_sidebar_position(gtk::PackType::Start);
+    outer_split.set_min_sidebar_width(190.0);
+    outer_split.set_max_sidebar_width(320.0);
+    outer_split.set_sidebar_width_fraction(0.18);
+    outer_split.set_show_sidebar(vertical_visible);
+    toolbar.set_content(Some(&outer_split));
+
+    {
+        let split = files_split.clone();
+        let settings = gsettings_with_key("files-panel");
+        let panel = file_panel.clone();
+        files_button.connect_toggled(move |button| {
+            let active = button.is_active();
+            split.set_show_sidebar(active);
+            if active {
+                panel.activate();
+            } else {
+                panel.deactivate();
+            }
+            if let Some(settings) = &settings {
+                let _ = settings.set_boolean("files-panel", active);
+            }
+        });
+    }
+    {
+        let split = outer_split.clone();
+        let bar = tab_bar.clone();
+        let settings = gsettings_with_key("vertical-tabs");
+        tabs_button.connect_toggled(move |button| {
+            let active = button.is_active();
+            split.set_show_sidebar(active);
+            bar.set_visible(!active);
+            if let Some(settings) = &settings {
+                let _ = settings.set_boolean("vertical-tabs", active);
+            }
+        });
+    }
 
     let history_index = Rc::new(RefCell::new(HistoryIndex::new()));
     let history =
@@ -415,6 +489,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let appearance = appearance.clone();
         let preferences = preferences.clone();
         let key_window = window.clone();
+        let files_button = files_button.clone();
+        let tabs_button = tabs_button.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
@@ -451,6 +527,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
 
             if action == Action::Preferences {
                 preferences.present(&key_window);
+                return glib::Propagation::Stop;
+            }
+            if action == Action::ToggleFiles {
+                files_button.set_active(!files_button.is_active());
+                return glib::Propagation::Stop;
+            }
+            if action == Action::ToggleVerticalTabs {
+                tabs_button.set_active(!tabs_button.is_active());
                 return glib::Propagation::Stop;
             }
             if action == Action::RenameTab {
@@ -520,8 +604,19 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     {
         let manager = manager.clone();
         let history_index = history_index.clone();
+        let file_panel = file_panel.clone();
+        let files_split = files_split.clone();
+        let tab_sidebar = tab_sidebar.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
+            tab_sidebar.refresh();
+            if files_split.shows_sidebar() && file_panel.follows_cwd() {
+                if let Some(cwd) = manager.borrow().active_cwd() {
+                    if cwd.is_dir() && file_panel.current() != cwd {
+                        file_panel.set_root(&cwd);
+                    }
+                }
+            }
             let records = manager.borrow().take_history_records();
             if !records.is_empty() {
                 let mut index = history_index.borrow_mut();
@@ -1078,6 +1173,278 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_FILES_TEST").is_some() {
+        let manager = manager.clone();
+        let file_panel = file_panel.clone();
+        let files_button = files_button.clone();
+        let files_split = files_split.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-files-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            let root = std::env::temp_dir().join(format!("termust-m8-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("a-dir")).unwrap();
+            std::fs::create_dir_all(root.join("big")).unwrap();
+            std::fs::write(root.join("a-dir/nested.txt"), b"nested").unwrap();
+            std::fs::write(root.join("b.txt"), b"b").unwrap();
+            std::fs::write(root.join("c.rs"), b"fn main() {}").unwrap();
+            std::fs::write(root.join(".hidden"), b"h").unwrap();
+            let _ = std::os::unix::fs::symlink("/ruta/que/no/existe", root.join("roto"));
+            for index in 0..10_000 {
+                std::fs::write(root.join(format!("big/f-{index:05}.txt")), b"").unwrap();
+            }
+
+            files_button.set_active(true);
+            check("panel visible", files_split.shows_sidebar());
+            file_panel.set_root(&root);
+            let names = file_panel.visible_names();
+            check(
+                "tree_sorted_folders_first",
+                names == vec!["a-dir", "big", "b.txt", "c.rs", "roto"],
+            );
+            let panel_settings = gsettings_with_key("files-panel");
+            check(
+                "files_panel_toggle_persists",
+                panel_settings
+                    .as_ref()
+                    .map(|settings| settings.boolean("files-panel"))
+                    .unwrap_or(true),
+            );
+
+            file_panel.set_search("C.R");
+            check(
+                "files_search_typeahead",
+                file_panel.visible_names() == vec!["c.rs"],
+            );
+            file_panel.set_search("");
+            check("filtro limpiado", file_panel.rows() == 5);
+
+            check(
+                "roto no navegable",
+                file_panel.name_is_navigable("roto") == Some(false),
+            );
+            let before = file_panel.current();
+            check("activar roto no navega", !file_panel.activate_root("roto"));
+            check(
+                "files_broken_symlink_is_inert",
+                file_panel.current() == before,
+            );
+
+            let rows_before = file_panel.visible_names().len();
+            check("expandir carpeta", file_panel.expand_root("a-dir"));
+            check(
+                "árbol lazy carga hijos al expandir",
+                file_panel.visible_names().len() > rows_before
+                    && file_panel.visible_names().iter().any(|n| n == "nested.txt"),
+            );
+
+            file_panel.set_show_hidden(true);
+            check(
+                "archivos ocultos visibles",
+                file_panel.visible_names().iter().any(|n| n == ".hidden"),
+            );
+            file_panel.set_show_hidden(false);
+
+            std::fs::create_dir(root.join("vacia")).unwrap();
+            file_panel.set_root(&root.join("vacia"));
+            check(
+                "carpeta vacía muestra estado",
+                file_panel.is_showing_status() && file_panel.status_title() == "Carpeta vacía",
+            );
+
+            file_panel.set_root(&root.join("big"));
+            let load_ms = file_panel.load_ms();
+            eprintln!(
+                "termust-files-test: 10k filas={} en {load_ms:.1} ms (objetivo 150 / duro 400)",
+                file_panel.rows()
+            );
+            check(
+                "tree_10k_entries_within_budget",
+                file_panel.rows() == 10_000 && load_ms < 400.0,
+            );
+
+            file_panel.set_root(&root);
+            manager.borrow().send_active(b"cd /tmp\n");
+            let manager2 = manager.clone();
+            let file_panel2 = file_panel.clone();
+            let files_button2 = files_button.clone();
+            let root2 = root.clone();
+            let app2 = app.clone();
+            let mut failed2 = failed;
+            glib::timeout_add_local_once(Duration::from_millis(1600), move || {
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-files-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed2 |= !ok;
+                };
+                check(
+                    "files_follow_active_pane",
+                    file_panel2.current().ends_with("tmp"),
+                );
+                file_panel2.set_follow(false);
+                manager2.borrow().send_active(b"cd /\n");
+                let file_panel3 = file_panel2.clone();
+                let files_button3 = files_button2.clone();
+                let root3 = root2.clone();
+                let app3 = app2.clone();
+                let mut failed3 = failed2;
+                glib::timeout_add_local_once(Duration::from_millis(1600), move || {
+                    let mut check = |label: &str, ok: bool| {
+                        eprintln!(
+                            "termust-files-test: {label} {}",
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        failed3 |= !ok;
+                    };
+                    check(
+                        "follow desactivado no navega",
+                        file_panel3.current().ends_with("tmp"),
+                    );
+                    files_button3.set_active(false);
+                    let panel_settings = gsettings_with_key("files-panel");
+                    check(
+                        "panel oculto",
+                        panel_settings
+                            .as_ref()
+                            .map(|settings| !settings.boolean("files-panel"))
+                            .unwrap_or(true),
+                    );
+                    files_button3.set_active(true);
+                    check(
+                        "panel reabierto",
+                        panel_settings
+                            .as_ref()
+                            .map(|settings| settings.boolean("files-panel"))
+                            .unwrap_or(true),
+                    );
+
+                    file_panel3.set_root(&root3);
+                    {
+                        // GIO establece el watch de forma asíncrona; se espera
+                        // antes de crear el archivo para probar la notificación.
+                        let root_watch = root3.clone();
+                        glib::timeout_add_local_once(Duration::from_millis(350), move || {
+                            let _ = std::fs::write(root_watch.join("watch-now.txt"), b"new");
+                        });
+                    }
+                    let app4 = app3.clone();
+                    let file_panel4 = file_panel3.clone();
+                    let files_button4 = files_button3.clone();
+                    let root4 = root3.clone();
+                    let mut failed4 = failed3;
+                    glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                        let mut check = |label: &str, ok: bool| {
+                            eprintln!(
+                                "termust-files-test: {label} {}",
+                                if ok { "ok" } else { "FAIL" }
+                            );
+                            failed4 |= !ok;
+                        };
+                        check(
+                            "watch refresca la carpeta",
+                            file_panel4
+                                .visible_names()
+                                .iter()
+                                .any(|name| name == "watch-now.txt"),
+                        );
+                        file_panel4.set_follow(true);
+                        files_button4.set_active(false);
+                        let _ = std::fs::remove_dir_all(&root4);
+                        eprintln!(
+                            "termust-files-test: {}",
+                            if failed4 { "FAIL" } else { "ok" }
+                        );
+                        if failed4 {
+                            std::process::exit(1);
+                        }
+                        app4.quit();
+                    });
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_VERTICAL_TABS_TEST").is_some() {
+        let manager = manager.clone();
+        let tabs_button = tabs_button.clone();
+        let tab_sidebar = tab_sidebar.clone();
+        let tab_bar = tab_bar.clone();
+        let outer_split = outer_split.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-vertical-tabs: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            {
+                let mut manager = manager.borrow_mut();
+                manager.rename_tab("vertical");
+                let _ = manager.split_active(SplitOrientation::Horizontal);
+            }
+            let tabs = manager.borrow().tab_count();
+            let panes = manager.borrow().active_pane_count();
+            let cwd = manager.borrow().active_cwd();
+            check("2 paneles antes", panes == 2);
+
+            tabs_button.set_active(true);
+            tab_sidebar.refresh();
+            check(
+                "sidebar visible",
+                outer_split.shows_sidebar() && !tab_bar.is_visible(),
+            );
+            check(
+                "una fila por pestaña",
+                tab_sidebar.row_count() == tabs && tabs >= 1,
+            );
+            check(
+                "vertical↔horizontal no pierde paneles",
+                manager.borrow().tab_count() == tabs
+                    && manager.borrow().active_pane_count() == panes
+                    && manager.borrow().active_cwd() == cwd,
+            );
+            check(
+                "vertical-tabs persistido",
+                gsettings_with_key("vertical-tabs")
+                    .as_ref()
+                    .map(|settings| settings.boolean("vertical-tabs"))
+                    .unwrap_or(true),
+            );
+
+            tabs_button.set_active(false);
+            check(
+                "vuelve la barra horizontal",
+                !outer_split.shows_sidebar() && tab_bar.is_visible(),
+            );
+            check(
+                "horizontal conserva paneles",
+                manager.borrow().tab_count() == tabs
+                    && manager.borrow().active_pane_count() == panes
+                    && manager.borrow().active_cwd() == cwd,
+            );
+            eprintln!(
+                "termust-vertical-tabs: {}",
+                if failed { "FAIL" } else { "ok" }
+            );
+            if failed {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -1294,13 +1661,21 @@ fn show_error(toolbar: &ToolbarView, message: &str) {
 }
 
 fn restore_preference() -> bool {
-    let Some(source) = gtk::gio::SettingsSchemaSource::default() else {
-        return true;
-    };
-    if source.lookup(termust_core::APP_ID, true).is_none() {
-        return true;
-    }
-    gtk::gio::Settings::new(termust_core::APP_ID).boolean("restore-session")
+    setting_bool("restore-session", true)
+}
+
+fn gsettings_with_key(key: &str) -> Option<gtk::gio::Settings> {
+    let source = gtk::gio::SettingsSchemaSource::default()?;
+    let schema = source.lookup(termust_core::APP_ID, true)?;
+    schema
+        .has_key(key)
+        .then(|| gtk::gio::Settings::new(termust_core::APP_ID))
+}
+
+fn setting_bool(key: &str, default: bool) -> bool {
+    gsettings_with_key(key)
+        .map(|settings| settings.boolean(key))
+        .unwrap_or(default)
 }
 
 #[derive(Clone)]
