@@ -25,6 +25,8 @@ struct Entry {
     page: TabPage,
     container: gtk::Box,
     panes: HashMap<PaneId, TerminalView>,
+    pane_cwds: HashMap<PaneId, PathBuf>,
+    attached: bool,
 }
 
 pub struct TabManager {
@@ -39,6 +41,7 @@ pub struct TabManager {
     suspend_ratios: Rc<Cell<bool>>,
     suspend_focus: Rc<Cell<bool>>,
     close_dialog_open: Rc<Cell<bool>>,
+    restore_queue: Vec<TabId>,
 }
 
 impl TabManager {
@@ -69,9 +72,72 @@ impl TabManager {
             suspend_ratios: Rc::new(Cell::new(false)),
             suspend_focus: Rc::new(Cell::new(false)),
             close_dialog_open: Rc::new(Cell::new(false)),
+            restore_queue: Vec::new(),
         };
         let first = model.borrow().active_id();
+        let first_cwds = {
+            let model = model.borrow();
+            let tab = model
+                .get(first)
+                .ok_or_else(|| "pestaña inexistente".to_string())?;
+            tab.layout
+                .leaves()
+                .into_iter()
+                .map(|pane| (pane, tab.cwd.clone()))
+                .collect()
+        };
+        manager.create_entry(first, first_cwds)?;
         manager.attach_tab(first)?;
+        Ok(manager)
+    }
+
+    /// Construye el manager a partir de una sesión restaurada. Solo la pestaña
+    /// activa se adjunta de inmediato; el resto va en `restore_queue`.
+    pub fn restore(
+        spawner: Rc<UnixPtySpawner>,
+        shell: PathBuf,
+        integration: ShellIntegration,
+        window: ApplicationWindow,
+        model: TabModel,
+        pane_cwds: Vec<HashMap<PaneId, PathBuf>>,
+    ) -> Result<Self, String> {
+        let tab_view = TabView::new();
+        let tab_bar = TabBar::new();
+        tab_bar.set_view(Some(&tab_view));
+        tab_bar.set_autohide(false);
+        tab_bar.set_expand_tabs(false);
+        tab_bar.set_hexpand(true);
+
+        let model = Rc::new(RefCell::new(model));
+        let active = model.borrow().active_id();
+        let tab_ids: Vec<TabId> = model.borrow().tabs().iter().map(|tab| tab.id).collect();
+        let mut manager = Self {
+            tab_view,
+            tab_bar,
+            entries: Vec::new(),
+            model: model.clone(),
+            spawner,
+            shell,
+            integration,
+            window,
+            suspend_ratios: Rc::new(Cell::new(false)),
+            suspend_focus: Rc::new(Cell::new(false)),
+            close_dialog_open: Rc::new(Cell::new(false)),
+            restore_queue: Vec::new(),
+        };
+        for (index, tab_id) in tab_ids.iter().enumerate() {
+            let cwds = pane_cwds.get(index).cloned().unwrap_or_default();
+            manager.create_entry(*tab_id, cwds)?;
+        }
+        if let Some(entry) = manager.entries.iter().find(|entry| entry.id == active) {
+            manager.tab_view.set_selected_page(&entry.page);
+        }
+        manager.attach_tab(active)?;
+        manager.restore_queue = tab_ids
+            .into_iter()
+            .filter(|tab_id| *tab_id != active)
+            .collect();
+        manager.focus_active();
         Ok(manager)
     }
 
@@ -85,6 +151,18 @@ impl TabManager {
 
     pub fn open_tab(&mut self, cwd: PathBuf) -> Result<(), String> {
         let tab_id = self.model.borrow_mut().new_tab(cwd);
+        let cwds = {
+            let model = self.model.borrow();
+            let tab = model
+                .get(tab_id)
+                .ok_or_else(|| "pestaña inexistente".to_string())?;
+            tab.layout
+                .leaves()
+                .into_iter()
+                .map(|pane| (pane, tab.cwd.clone()))
+                .collect()
+        };
+        self.create_entry(tab_id, cwds)?;
         self.attach_tab(tab_id)?;
         if let Some(entry) = self.entries.iter().find(|e| e.id == tab_id) {
             self.tab_view.set_selected_page(&entry.page);
@@ -93,50 +171,108 @@ impl TabManager {
         Ok(())
     }
 
-    fn attach_tab(&mut self, tab_id: TabId) -> Result<(), String> {
-        let (layout, cwd) = {
+    fn create_entry(
+        &mut self,
+        tab_id: TabId,
+        pane_cwds: HashMap<PaneId, PathBuf>,
+    ) -> Result<(), String> {
+        let (cwd, title) = {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
                 .ok_or_else(|| "pestaña inexistente".to_string())?;
-            (tab.layout.clone(), tab.cwd.clone())
+            (tab.cwd.clone(), tab.title_override.clone())
         };
-
-        let mut panes = HashMap::new();
-        for pane in layout.leaves() {
-            let view = self.spawn_view(&cwd)?;
-            self.install_focus(&view, tab_id, pane);
-            panes.insert(pane, view);
-        }
-
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         container.set_hexpand(true);
         container.set_vexpand(true);
-        self.suspend_focus.set(true);
-        let suspend_focus = self.suspend_focus.clone();
-        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend_focus.set(false));
-        if layout.len() > 1 {
-            container.add_css_class("termust-multi-pane");
-        }
-
-        self.suspend_ratios.set(true);
-        let mut positions = Vec::new();
-        let mut path = Vec::new();
-        let root = self.build_node(tab_id, &layout, &panes, &mut path, &mut positions);
-        container.append(&root);
-        schedule_positions(positions);
-        let suspend = self.suspend_ratios.clone();
-        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend.set(false));
-
+        let placeholder = gtk::Label::new(Some("Restaurando…"));
+        placeholder.add_css_class("dim-label");
+        placeholder.set_vexpand(true);
+        container.append(&placeholder);
         let page = self.tab_view.append(&container);
-        page.set_title("Terminal");
+        page.set_title(title.as_deref().unwrap_or("Terminal"));
         page.set_tooltip(&cwd.display().to_string());
         self.entries.push(Entry {
             id: tab_id,
             page,
             container,
-            panes,
+            panes: HashMap::new(),
+            pane_cwds,
+            attached: false,
         });
+        Ok(())
+    }
+
+    fn attach_tab(&mut self, tab_id: TabId) -> Result<(), String> {
+        let Some(index) = self.entries.iter().position(|entry| entry.id == tab_id) else {
+            return Ok(());
+        };
+        if self.entries[index].attached {
+            return Ok(());
+        }
+        let (layout, tab_cwd, title_override) = {
+            let model = self.model.borrow();
+            let tab = model
+                .get(tab_id)
+                .ok_or_else(|| "pestaña inexistente".to_string())?;
+            (
+                tab.layout.clone(),
+                tab.cwd.clone(),
+                tab.title_override.clone(),
+            )
+        };
+
+        let resolved: Vec<(PaneId, PathBuf)> = layout
+            .leaves()
+            .into_iter()
+            .map(|pane| {
+                let cwd = self.entries[index]
+                    .pane_cwds
+                    .get(&pane)
+                    .cloned()
+                    .unwrap_or_else(|| tab_cwd.clone());
+                (pane, cwd)
+            })
+            .collect();
+
+        let mut panes = HashMap::new();
+        for (pane, cwd) in &resolved {
+            let view = self.spawn_view(cwd)?;
+            self.install_focus(&view, tab_id, *pane);
+            panes.insert(*pane, view);
+        }
+
+        self.suspend_ratios.set(true);
+        self.suspend_focus.set(true);
+        let suspend_focus = self.suspend_focus.clone();
+        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend_focus.set(false));
+        let mut positions = Vec::new();
+        let mut path = Vec::new();
+        let root = self.build_node(tab_id, &layout, &panes, &mut path, &mut positions);
+
+        let entry = &mut self.entries[index];
+        while let Some(child) = entry.container.first_child() {
+            entry.container.remove(&child);
+        }
+        entry.container.append(&root);
+        if layout.len() > 1 {
+            entry.container.add_css_class("termust-multi-pane");
+        } else {
+            entry.container.remove_css_class("termust-multi-pane");
+        }
+        for (pane, cwd) in resolved {
+            entry.pane_cwds.insert(pane, cwd);
+        }
+        entry.panes = panes;
+        entry.attached = true;
+        let page = entry.page.clone();
+        page.set_title(title_override.as_deref().unwrap_or("Terminal"));
+        page.set_tooltip(&tab_cwd.display().to_string());
+
+        schedule_positions(positions);
+        let suspend = self.suspend_ratios.clone();
+        glib::timeout_add_local_once(Duration::from_millis(80), move || suspend.set(false));
         Ok(())
     }
 
@@ -351,6 +487,7 @@ impl TabManager {
         };
         self.install_focus(&view, tab_id, new_pane);
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == tab_id) {
+            entry.pane_cwds.insert(new_pane, cwd.clone());
             entry.panes.insert(new_pane, view);
         }
         self.rebuild(tab_id);
@@ -389,6 +526,7 @@ impl TabManager {
             let view = self.spawn_view(&cwd)?;
             self.install_focus(&view, tab_id, pane);
             if let Some(entry) = self.entries.iter_mut().find(|e| e.id == tab_id) {
+                entry.pane_cwds.insert(pane, cwd.clone());
                 entry.panes.insert(pane, view);
             }
         }
@@ -428,6 +566,7 @@ impl TabManager {
             return false;
         }
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == tab_id) {
+            entry.pane_cwds.remove(&pane);
             if let Some(view) = entry.panes.remove(&pane) {
                 view.kill();
             }
@@ -504,8 +643,84 @@ impl TabManager {
         }
     }
 
+    pub fn tab_count(&self) -> usize {
+        self.entries.len()
+    }
+
     pub fn active_pane_count(&self) -> usize {
         self.model.borrow().active().layout.len()
+    }
+
+    pub fn active_title_override(&self) -> Option<String> {
+        let model = self.model.borrow();
+        model
+            .get(model.active_id())
+            .and_then(|tab| tab.title_override.clone())
+    }
+
+    pub fn rename_tab(&mut self, name: &str) {
+        let tab_id = self.model.borrow().active_id();
+        self.model
+            .borrow_mut()
+            .rename(tab_id, Some(name.to_string()));
+        self.update_titles();
+    }
+
+    pub fn snapshot(&self) -> termust_store::SessionSnapshot {
+        let mut tabs = Vec::new();
+        for entry in &self.entries {
+            let Some(tab) = self.model.borrow().get(entry.id).cloned() else {
+                continue;
+            };
+            let mut panes = Vec::new();
+            for pane in tab.layout.leaves() {
+                let view = entry.panes.get(&pane);
+                let cwd = view
+                    .and_then(|view| view.cwd())
+                    .or_else(|| entry.pane_cwds.get(&pane).cloned())
+                    .unwrap_or_else(|| tab.cwd.clone());
+                let title = view.and_then(|view| view.title());
+                panes.push(termust_store::PaneSnapshot {
+                    id: pane,
+                    cwd,
+                    last_osc_title: title,
+                    agent_hint: None,
+                });
+            }
+            let active_pane = panes
+                .iter()
+                .find(|pane| pane.id == tab.active_pane)
+                .cloned();
+            let cwd = active_pane
+                .as_ref()
+                .map(|pane| pane.cwd.clone())
+                .unwrap_or_else(|| tab.cwd.clone());
+            let last_osc_title = active_pane
+                .as_ref()
+                .and_then(|pane| pane.last_osc_title.clone())
+                .or_else(|| tab.last_osc_title.clone());
+            tabs.push(termust_store::TabSnapshot {
+                layout: tab.layout,
+                active_pane: tab.active_pane,
+                cwd,
+                title_override: tab.title_override,
+                last_osc_title,
+                theme_id: tab.theme_id,
+                panes,
+            });
+        }
+        let active_tab = self.active_entry_index().unwrap_or(0);
+        let width = self.window.width().max(320);
+        let height = self.window.height().max(240);
+        termust_store::SessionSnapshot {
+            window: termust_store::WindowState {
+                width,
+                height,
+                maximized: self.window.is_maximized(),
+            },
+            active_tab,
+            tabs,
+        }
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {
@@ -735,11 +950,19 @@ impl TabManager {
     }
 
     fn on_page_selected(&mut self, page: &TabPage) {
-        if let Some(entry) = self.entries.iter().find(|e| e.page == *page) {
-            let tab_id = entry.id;
-            self.model.borrow_mut().activate(tab_id);
-            self.focus_active();
+        let Some((tab_id, attached)) = self
+            .entries
+            .iter()
+            .find(|entry| entry.page == *page)
+            .map(|entry| (entry.id, entry.attached))
+        else {
+            return;
+        };
+        if !attached {
+            let _ = self.attach_tab(tab_id);
         }
+        self.model.borrow_mut().activate(tab_id);
+        self.focus_active();
     }
 
     pub fn connect(manager: &Rc<RefCell<Self>>) {
@@ -816,6 +1039,27 @@ impl TabManager {
                 }
             });
         }
+
+        if !manager.borrow().restore_queue.is_empty() {
+            let manager = manager.clone();
+            glib::timeout_add_local(Duration::from_millis(50), move || {
+                let Ok(mut manager) = manager.try_borrow_mut() else {
+                    return glib::ControlFlow::Continue;
+                };
+                for _ in 0..2 {
+                    let Some(tab_id) = manager.restore_queue.first().copied() else {
+                        break;
+                    };
+                    manager.restore_queue.remove(0);
+                    let _ = manager.attach_tab(tab_id);
+                }
+                if manager.restore_queue.is_empty() {
+                    glib::ControlFlow::Break
+                } else {
+                    glib::ControlFlow::Continue
+                }
+            });
+        }
     }
 
     pub fn rename_dialog(manager: &Rc<RefCell<Self>>) {
@@ -865,6 +1109,47 @@ impl TabManager {
     }
 }
 
+pub struct RestoredSession {
+    pub model: TabModel,
+    pub pane_cwds: Vec<HashMap<PaneId, PathBuf>>,
+}
+
+/// Construye el modelo y los cwd por panel desde una sesión guardada.
+pub fn restored_session(
+    snapshot: &termust_store::SessionSnapshot,
+    home: &Path,
+) -> Result<RestoredSession, String> {
+    let mut tabs = Vec::with_capacity(snapshot.tabs.len());
+    let mut pane_cwds = Vec::with_capacity(snapshot.tabs.len());
+    for tab in &snapshot.tabs {
+        let mut cwds = HashMap::new();
+        for pane in &tab.panes {
+            let cwd = if pane.cwd.is_dir() {
+                pane.cwd.clone()
+            } else {
+                home.to_path_buf()
+            };
+            cwds.insert(pane.id, cwd);
+        }
+        let active_cwd = cwds
+            .get(&tab.active_pane)
+            .cloned()
+            .unwrap_or_else(|| home.to_path_buf());
+        tabs.push(termust_core::tabs::RestoreTab {
+            layout: tab.layout.clone(),
+            active_pane: tab.active_pane,
+            cwd: active_cwd,
+            title_override: tab.title_override.clone(),
+            last_osc_title: tab.last_osc_title.clone(),
+            theme_id: tab.theme_id.clone(),
+        });
+        pane_cwds.push(cwds);
+    }
+    let model = TabModel::restore(tabs, snapshot.active_tab)
+        .map_err(|error| format!("sesión inválida: {error:?}"))?;
+    Ok(RestoredSession { model, pane_cwds })
+}
+
 fn schedule_positions(positions: Vec<(gtk::Paned, f64)>) {
     if positions.is_empty() {
         return;
@@ -889,5 +1174,109 @@ fn apply_positions(positions: Vec<(gtk::Paned, f64)>, attempts: u8) {
         glib::timeout_add_local_once(Duration::from_millis(30), move || {
             apply_positions(pending, attempts - 1)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use termust_core::tabs::SplitOrientation;
+    use termust_store::{PaneSnapshot, SessionSnapshot, TabSnapshot, WindowState};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "termust-app-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn restored_session_falls_back_and_preserves_layout() {
+        let dir = temp_dir("restore");
+        let home = dir.join("home");
+        let repo = dir.join("repo");
+        let gone = dir.join("gone");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&repo).unwrap();
+        let layout = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 0.3,
+            first: Box::new(PaneTree::Leaf(1)),
+            second: Box::new(PaneTree::Leaf(2)),
+        };
+        let snapshot = SessionSnapshot {
+            window: WindowState::default(),
+            active_tab: 0,
+            tabs: vec![TabSnapshot {
+                layout,
+                active_pane: 2,
+                cwd: gone.clone(),
+                title_override: Some("build".into()),
+                last_osc_title: None,
+                theme_id: None,
+                panes: vec![
+                    PaneSnapshot {
+                        id: 1,
+                        cwd: repo.clone(),
+                        last_osc_title: None,
+                        agent_hint: None,
+                    },
+                    PaneSnapshot {
+                        id: 2,
+                        cwd: gone.clone(),
+                        last_osc_title: None,
+                        agent_hint: None,
+                    },
+                ],
+            }],
+        };
+        let restored = restored_session(&snapshot, &home).unwrap();
+        assert_eq!(restored.pane_cwds[0][&1], repo);
+        assert_eq!(restored.pane_cwds[0][&2], home);
+        let model = restored.model;
+        assert_eq!(model.active_id(), 1);
+        assert_eq!(model.active().active_pane, 2);
+        assert_eq!(model.active().cwd, home);
+        assert_eq!(model.active().layout.ratio_at_path(&[]), Some(0.3));
+        assert_eq!(model.active().title_override.as_deref(), Some("build"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restored_session_rejects_invalid_duplicate_panes() {
+        let dir = temp_dir("invalid");
+        let layout = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 0.5,
+            first: Box::new(PaneTree::Leaf(1)),
+            second: Box::new(PaneTree::Leaf(1)),
+        };
+        let snapshot = SessionSnapshot {
+            window: WindowState::default(),
+            active_tab: 0,
+            tabs: vec![TabSnapshot {
+                layout,
+                active_pane: 1,
+                cwd: dir.clone(),
+                title_override: None,
+                last_osc_title: None,
+                theme_id: None,
+                panes: vec![PaneSnapshot {
+                    id: 1,
+                    cwd: dir.clone(),
+                    last_osc_title: None,
+                    agent_hint: None,
+                }],
+            }],
+        };
+        assert!(restored_session(&snapshot, &dir).is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

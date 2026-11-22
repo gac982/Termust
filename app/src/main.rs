@@ -5,9 +5,10 @@ use gtk::glib;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use libadwaita::{Application, ApplicationWindow, HeaderBar, ToolbarView};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc;
 use std::time::Duration;
 use tabs::TabManager;
 use termust_core::keymap::{
@@ -31,20 +32,76 @@ fn main() -> glib::ExitCode {
     let app = Application::builder()
         .application_id(termust_core::APP_ID)
         .build();
+    app.set_flags(gtk::gio::ApplicationFlags::HANDLES_COMMAND_LINE);
+    let no_restore = Rc::new(Cell::new(false));
+    {
+        let no_restore = no_restore.clone();
+        app.connect_command_line(move |app, command_line| {
+            let args: Vec<String> = command_line
+                .arguments()
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            no_restore.set(args.iter().any(|arg| arg == "--no-restore"));
+            app.activate();
+            glib::ExitCode::SUCCESS
+        });
+    }
     let slot: Rc<RefCell<Option<ApplicationWindow>>> = Rc::new(RefCell::new(None));
     let activate_slot = slot.clone();
+    let activate_no_restore = no_restore.clone();
     app.connect_activate(move |app| {
         if let Some(window) = activate_slot.borrow().as_ref() {
             window.present();
             return;
         }
-        let window = build_ui(app);
+        let window = build_ui(app, activate_no_restore.get());
         *activate_slot.borrow_mut() = Some(window);
     });
     app.run()
 }
 
-fn build_ui(app: &Application) -> ApplicationWindow {
+fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
+    let started = std::time::Instant::now();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"));
+    let dev_tabs = initial_tabs() > 1;
+    let seed = std::env::var_os("TERMUST_SESSION_SEED").is_some();
+    let verify = std::env::var_os("TERMUST_SESSION_VERIFY").is_some();
+    let corrupt_test = std::env::var_os("TERMUST_SESSION_CORRUPT_TEST").is_some();
+    let fresh_hooks = [
+        "TERMUST_PANES_TEST",
+        "TERMUST_CWD_TEST",
+        "TERMUST_CLOSE_CONFIRM_TEST",
+        "TERMUST_CLOSE_TEST",
+    ]
+    .iter()
+    .any(|key| std::env::var_os(key).is_some());
+    if fresh_hooks && std::env::var_os("TERMUST_SESSION_PATH").is_none() {
+        let path =
+            std::env::temp_dir().join(format!("termust-hook-session-{}.json", std::process::id()));
+        std::env::set_var("TERMUST_SESSION_PATH", path);
+    }
+    let restore_enabled = !no_restore
+        && !dev_tabs
+        && !seed
+        && !fresh_hooks
+        && (verify || corrupt_test || restore_preference());
+    let load = if restore_enabled {
+        termust_store::load(&termust_store::session_path())
+    } else {
+        termust_store::LoadResult::Missing
+    };
+    let (win_width, win_height, maximized) = match &load {
+        termust_store::LoadResult::Loaded(snapshot) => (
+            snapshot.window.width,
+            snapshot.window.height,
+            snapshot.window.maximized,
+        ),
+        _ => (1024, 700, false),
+    };
+
     let header = HeaderBar::new();
     let toolbar = ToolbarView::new();
     toolbar.add_top_bar(&header);
@@ -52,10 +109,13 @@ fn build_ui(app: &Application) -> ApplicationWindow {
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Termust")
-        .default_width(1024)
-        .default_height(700)
+        .default_width(win_width)
+        .default_height(win_height)
         .content(&toolbar)
         .build();
+    if maximized {
+        window.maximize();
+    }
 
     let spawner = match UnixPtySpawner::new() {
         Ok(s) => Rc::new(s),
@@ -74,11 +134,65 @@ fn build_ui(app: &Application) -> ApplicationWindow {
             return window;
         }
     };
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"));
 
-    let manager = match TabManager::new(spawner, shell, integration, home.clone(), window.clone()) {
+    let mut notice: Option<String> = None;
+    let make_fresh = || {
+        TabManager::new(
+            spawner.clone(),
+            shell.clone(),
+            integration.clone(),
+            home.clone(),
+            window.clone(),
+        )
+    };
+    let manager = match load {
+        termust_store::LoadResult::Loaded(mut snapshot) => {
+            let missing = termust_store::fallback_cwds(&mut snapshot, &home);
+            match tabs::restored_session(&snapshot, &home) {
+                Ok(restored) => match TabManager::restore(
+                    spawner.clone(),
+                    shell.clone(),
+                    integration.clone(),
+                    window.clone(),
+                    restored.model,
+                    restored.pane_cwds,
+                ) {
+                    Ok(manager) => {
+                        notice = Some(if missing {
+                            "Sesión restaurada; algunos directorios no existían y se usó $HOME."
+                                .into()
+                        } else {
+                            "Sesión restaurada. Los procesos no se restauran.".into()
+                        });
+                        Ok(manager)
+                    }
+                    Err(e) => {
+                        eprintln!("termust: no se pudo restaurar la sesión: {e}");
+                        notice =
+                            Some("No se pudo restaurar la sesión; se inició una nueva.".into());
+                        make_fresh()
+                    }
+                },
+                Err(e) => {
+                    eprintln!("termust: sesión inválida: {e}");
+                    notice = Some("La sesión guardada no es válida; se inició una nueva.".into());
+                    make_fresh()
+                }
+            }
+        }
+        termust_store::LoadResult::Corrupt(e) => {
+            eprintln!("termust: sesión corrupta: {e}");
+            notice = Some("No se pudo leer la sesión guardada; se inició una nueva.".into());
+            make_fresh()
+        }
+        termust_store::LoadResult::FutureVersion(version) => {
+            eprintln!("termust: sesión con schema v{version} no soportado");
+            notice = Some("La sesión guardada es de una versión más nueva; se ignoró.".into());
+            make_fresh()
+        }
+        termust_store::LoadResult::Missing => make_fresh(),
+    };
+    let manager = match manager {
         Ok(m) => Rc::new(RefCell::new(m)),
         Err(e) => {
             show_error(&toolbar, &e);
@@ -87,6 +201,14 @@ fn build_ui(app: &Application) -> ApplicationWindow {
         }
     };
     TabManager::connect(&manager);
+    if std::env::var_os("TERMUST_STARTUP_TEST").is_some() {
+        eprintln!(
+            "termust-startup: pestaña activa adjunta en {} ms",
+            started.elapsed().as_millis()
+        );
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(250), move || app.quit());
+    }
     for _ in 1..initial_tabs() {
         if let Err(e) = manager.borrow_mut().open_tab(home.clone()) {
             eprintln!("termust: no se pudo abrir pestaña: {e}");
@@ -496,6 +618,153 @@ fn build_ui(app: &Application) -> ApplicationWindow {
         });
     }
 
+    let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
+    if !read_only {
+        let session_path = termust_store::session_path();
+        let saver = SessionSaver::start(session_path.clone());
+        let last: Rc<RefCell<Option<termust_store::SessionSnapshot>>> = Rc::new(RefCell::new(None));
+        {
+            let manager = manager.clone();
+            let saver = saver.clone();
+            let last = last.clone();
+            glib::timeout_add_local(Duration::from_secs(1), move || {
+                if let Ok(manager) = manager.try_borrow() {
+                    let snapshot = manager.snapshot();
+                    if last.borrow().as_ref() != Some(&snapshot) {
+                        saver.schedule(snapshot.clone());
+                        *last.borrow_mut() = Some(snapshot);
+                    }
+                }
+                glib::ControlFlow::Continue
+            });
+        }
+        {
+            let manager = manager.clone();
+            let path = session_path.clone();
+            window.connect_close_request(move |_| {
+                if let Ok(manager) = manager.try_borrow() {
+                    let snapshot = manager.snapshot();
+                    if let Err(e) = termust_store::save_snapshot(&path, &snapshot) {
+                        eprintln!("termust: no se pudo guardar la sesión: {e}");
+                    }
+                }
+                glib::Propagation::Proceed
+            });
+        }
+    }
+
+    if let Some(text) = notice.take() {
+        let toast = toast_overlay.clone();
+        glib::idle_add_local_once(move || {
+            toast.add_toast(libadwaita::Toast::new(&text));
+        });
+    }
+
+    if std::env::var_os("TERMUST_SESSION_SEED").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let home = home.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            manager.borrow().send_active(b"cd /tmp\n");
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            let home2 = home.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                {
+                    let mut manager = manager2.borrow_mut();
+                    let _ = manager.split_active(SplitOrientation::Horizontal);
+                    manager.rename_tab("seed-tab");
+                    let _ = manager.open_tab(home2.clone());
+                    manager.select_index(0);
+                }
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                    let snapshot = manager3.borrow().snapshot();
+                    let path = termust_store::session_path();
+                    match termust_store::save_snapshot(&path, &snapshot) {
+                        Ok(()) => eprintln!("termust-session-seed: ok"),
+                        Err(e) => eprintln!("termust-session-seed: FAIL {e}"),
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_SESSION_VERIFY").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1800), move || {
+            let manager = manager.borrow();
+            let tabs = manager.tab_count();
+            let panes = manager.active_pane_count();
+            let cwd = manager.active_cwd();
+            let title = manager.active_title_override();
+            let ok = tabs == 2
+                && panes == 2
+                && cwd
+                    .as_ref()
+                    .map(|path| path.ends_with("tmp"))
+                    .unwrap_or(false)
+                && title.as_deref() == Some("seed-tab");
+            eprintln!(
+                "termust-session-verify: tabs={tabs} panes={panes} cwd={cwd:?} title={title:?} {}",
+                if ok { "ok" } else { "FAIL" }
+            );
+            if !ok {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
+    if std::env::var_os("TERMUST_SESSION_CORRUPT_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+            let manager = manager.borrow();
+            let tabs = manager.tab_count();
+            let panes = manager.active_pane_count();
+            let ok = tabs == 1 && panes == 1;
+            eprintln!(
+                "termust-session-corrupt: tabs={tabs} panes={panes} {}",
+                if ok { "ok" } else { "FAIL" }
+            );
+            if !ok {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
+    if std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            let manager = manager.borrow();
+            let tabs = manager.tab_count();
+            let panes = manager.active_pane_count();
+            let cwd = manager.active_cwd();
+            let title = manager.active_title_override();
+            let ok = tabs == 1
+                && panes == 1
+                && !cwd
+                    .as_ref()
+                    .map(|path| path.ends_with("tmp"))
+                    .unwrap_or(true)
+                && title.is_none();
+            eprintln!(
+                "termust-session-no-restore: tabs={tabs} panes={panes} cwd={cwd:?} title={title:?} {}",
+                if ok { "ok" } else { "FAIL" }
+            );
+            if !ok {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
     window.present();
     window
 }
@@ -559,4 +828,39 @@ fn show_error(toolbar: &ToolbarView, message: &str) {
         .description(message)
         .build();
     toolbar.set_content(Some(&page));
+}
+
+fn restore_preference() -> bool {
+    let Some(source) = gtk::gio::SettingsSchemaSource::default() else {
+        return true;
+    };
+    if source.lookup(termust_core::APP_ID, true).is_none() {
+        return true;
+    }
+    gtk::gio::Settings::new(termust_core::APP_ID).boolean("restore-session")
+}
+
+#[derive(Clone)]
+struct SessionSaver {
+    tx: mpsc::Sender<termust_store::SessionSnapshot>,
+}
+
+impl SessionSaver {
+    fn start(path: PathBuf) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let _ = std::thread::Builder::new()
+            .name("termust-session".into())
+            .spawn(move || {
+                for snapshot in rx {
+                    if let Err(e) = termust_store::save_snapshot(&path, &snapshot) {
+                        eprintln!("termust: no se pudo guardar la sesión: {e}");
+                    }
+                }
+            });
+        Self { tx }
+    }
+
+    fn schedule(&self, snapshot: termust_store::SessionSnapshot) {
+        let _ = self.tx.send(snapshot);
+    }
 }

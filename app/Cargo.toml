@@ -17,5 +17,6 @@ termust-render-cairo.workspace = true
 termust-term-engine.workspace = true
 termust-pty-unix.workspace = true
 termust-host-exec.workspace = true
+termust-store.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true

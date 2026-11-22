@@ -6,6 +6,25 @@ pub type PaneId = u64;
 pub const MAX_PANES: usize = 4;
 pub const MIN_PANE_WIDTH_PX: f64 = 320.0;
 
+#[derive(Clone, Debug)]
+pub struct RestoreTab {
+    pub layout: PaneTree,
+    pub active_pane: PaneId,
+    pub cwd: PathBuf,
+    pub title_override: Option<String>,
+    pub last_osc_title: Option<String>,
+    pub theme_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RestoreError {
+    Empty,
+    InvalidActiveTab,
+    InvalidActivePane,
+    TooManyPanes,
+    DuplicatePane,
+}
+
 /// El ancho disponible debe alcanzar para `columns` paneles de 320 px.
 pub fn fits_min_width(available_px: f64, columns: usize) -> bool {
     if columns == 0 || available_px <= 0.0 {
@@ -174,6 +193,25 @@ impl PaneTree {
                 SplitOrientation::Horizontal => first.max_columns() + second.max_columns(),
                 SplitOrientation::Vertical => first.max_columns().max(second.max_columns()),
             },
+        }
+    }
+
+    pub fn normalize_ratios(&mut self) {
+        match self {
+            PaneTree::Leaf(_) => {}
+            PaneTree::Split {
+                ratio,
+                first,
+                second,
+                ..
+            } => {
+                if !ratio.is_finite() {
+                    *ratio = DEFAULT_RATIO;
+                }
+                *ratio = ratio.clamp(MIN_RATIO, MAX_RATIO);
+                first.normalize_ratios();
+                second.normalize_ratios();
+            }
         }
     }
 
@@ -500,6 +538,53 @@ pub struct TabModel {
 }
 
 impl TabModel {
+    pub fn restore(tabs: Vec<RestoreTab>, active: usize) -> Result<Self, RestoreError> {
+        if tabs.is_empty() {
+            return Err(RestoreError::Empty);
+        }
+        if active >= tabs.len() {
+            return Err(RestoreError::InvalidActiveTab);
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut restored = Vec::with_capacity(tabs.len());
+        let mut next_pane = 1;
+        for (index, tab) in tabs.into_iter().enumerate() {
+            let leaves = tab.layout.leaves();
+            if leaves.len() > MAX_PANES {
+                return Err(RestoreError::TooManyPanes);
+            }
+            if !leaves.contains(&tab.active_pane) {
+                return Err(RestoreError::InvalidActivePane);
+            }
+            for leaf in &leaves {
+                if !seen.insert(*leaf) {
+                    return Err(RestoreError::DuplicatePane);
+                }
+                next_pane = next_pane.max(*leaf + 1);
+            }
+            let mut layout = tab.layout;
+            layout.normalize_ratios();
+            restored.push(Tab {
+                id: index as u64 + 1,
+                layout,
+                active_pane: tab.active_pane,
+                title_override: tab.title_override,
+                last_osc_title: tab.last_osc_title,
+                cwd: tab.cwd,
+                theme_id: tab.theme_id,
+                activity: Activity::Idle,
+            });
+        }
+        let next_tab = restored.len() as u64 + 1;
+        let active = restored[active].id;
+        Ok(Self {
+            tabs: restored,
+            active,
+            next_tab,
+            next_pane,
+        })
+    }
+
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
         let mut model = Self {
             tabs: Vec::new(),
@@ -958,6 +1043,115 @@ mod tests {
         assert!(!fits_min_width(600.0, 2));
         assert!(fits_min_width(0.0, 4));
         assert!(fits_min_width(1024.0, 0));
+    }
+
+    fn restore_tab(layout: PaneTree, active_pane: PaneId, cwd: &str) -> RestoreTab {
+        RestoreTab {
+            layout,
+            active_pane,
+            cwd: PathBuf::from(cwd),
+            title_override: None,
+            last_osc_title: None,
+            theme_id: None,
+        }
+    }
+
+    #[test]
+    fn restore_preserves_tree_ratios_and_focus() {
+        let layout = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 0.3,
+            first: Box::new(PaneTree::Leaf(10)),
+            second: Box::new(PaneTree::Split {
+                orientation: SplitOrientation::Vertical,
+                ratio: 0.6,
+                first: Box::new(PaneTree::Leaf(11)),
+                second: Box::new(PaneTree::Leaf(12)),
+            }),
+        };
+        let mut second_tab = restore_tab(PaneTree::Leaf(20), 20, "/var");
+        second_tab.title_override = Some("logs".into());
+        let model =
+            TabModel::restore(vec![restore_tab(layout, 12, "/tmp"), second_tab], 1).unwrap();
+        assert_eq!(model.len(), 2);
+        assert_eq!(model.active_id(), 2);
+        assert_eq!(model.active().title_override.as_deref(), Some("logs"));
+        let first = model.get(1).unwrap();
+        assert_eq!(first.active_pane, 12);
+        assert_eq!(first.layout.ratio_at_path(&[]), Some(0.3));
+        assert_eq!(first.layout.ratio_at_path(&[true]), Some(0.6));
+        assert_eq!(model.pane_ids(1).unwrap(), vec![10, 11, 12]);
+        let mut model = model;
+        let new_pane = model.split_pane(1, 10, SplitOrientation::Vertical).unwrap();
+        assert!(new_pane > 12);
+    }
+
+    #[test]
+    fn restore_rejects_invalid_sessions() {
+        assert_eq!(
+            TabModel::restore(Vec::new(), 0).err(),
+            Some(RestoreError::Empty)
+        );
+        let tab = restore_tab(PaneTree::Leaf(1), 1, "/tmp");
+        assert_eq!(
+            TabModel::restore(vec![tab.clone()], 3).err(),
+            Some(RestoreError::InvalidActiveTab)
+        );
+        let mut invalid = tab.clone();
+        invalid.active_pane = 9;
+        assert_eq!(
+            TabModel::restore(vec![invalid], 0).err(),
+            Some(RestoreError::InvalidActivePane)
+        );
+        let grid = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 0.5,
+            first: Box::new(PaneTree::Leaf(1)),
+            second: Box::new(PaneTree::Split {
+                orientation: SplitOrientation::Vertical,
+                ratio: 0.5,
+                first: Box::new(PaneTree::Split {
+                    orientation: SplitOrientation::Horizontal,
+                    ratio: 0.5,
+                    first: Box::new(PaneTree::Leaf(2)),
+                    second: Box::new(PaneTree::Leaf(3)),
+                }),
+                second: Box::new(PaneTree::Leaf(4)),
+            }),
+        };
+        let five = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 0.5,
+            first: Box::new(grid),
+            second: Box::new(PaneTree::Leaf(5)),
+        };
+        assert_eq!(
+            TabModel::restore(vec![restore_tab(five, 1, "/tmp")], 0).err(),
+            Some(RestoreError::TooManyPanes)
+        );
+        assert_eq!(
+            TabModel::restore(
+                vec![
+                    restore_tab(PaneTree::Leaf(1), 1, "/tmp"),
+                    restore_tab(PaneTree::Leaf(1), 1, "/var")
+                ],
+                0
+            )
+            .err(),
+            Some(RestoreError::DuplicatePane)
+        );
+    }
+
+    #[test]
+    fn restore_clamps_ratios() {
+        let layout = PaneTree::Split {
+            orientation: SplitOrientation::Horizontal,
+            ratio: 5.0,
+            first: Box::new(PaneTree::Leaf(1)),
+            second: Box::new(PaneTree::Leaf(2)),
+        };
+        let model = TabModel::restore(vec![restore_tab(layout, 1, "/tmp")], 0).unwrap();
+        assert_eq!(model.active().layout.ratio_at_path(&[]), Some(0.9));
     }
 
     #[test]
