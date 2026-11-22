@@ -17,6 +17,8 @@ pub enum OscEvent {
     Title(String),
     Cwd(PathBuf),
     Prompt(PromptMark),
+    Command(String),
+    ViMode(bool),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -168,6 +170,11 @@ impl OscScanner {
                     self.prompt_mark(mark);
                 }
             }
+            "633" => {
+                if let Some(rest) = rest {
+                    self.extension(rest);
+                }
+            }
             _ => {}
         }
     }
@@ -195,6 +202,24 @@ impl OscScanner {
                 self.prompt.state = PromptState::AtPrompt;
                 self.prompt.last_exit = code;
                 self.emit(OscEvent::Prompt(PromptMark::Finished(code)));
+            }
+            _ => {}
+        }
+    }
+
+    fn extension(&mut self, rest: &str) {
+        let (kind, payload) = match rest.split_once(';') {
+            Some((kind, payload)) => (kind, payload),
+            None => (rest, ""),
+        };
+        match kind {
+            "E" => {
+                if !payload.is_empty() && payload.len() <= MAX_OSC {
+                    self.emit(OscEvent::Command(payload.to_string()));
+                }
+            }
+            "V" => {
+                self.emit(OscEvent::ViMode(payload.starts_with("vi")));
             }
             _ => {}
         }
@@ -277,6 +302,17 @@ mod tests {
         s.feed(b"\x1b]133;D;7\x07");
         assert_eq!(s.prompt().state, PromptState::AtPrompt);
         assert_eq!(s.prompt().last_exit, Some(7));
+    }
+
+    #[test]
+    fn command_and_vi_mode_extensions() {
+        let mut s = OscScanner::new();
+        s.feed(b"\x1b]633;E;cargo test; --all\x07\x1b]633;V;vicmd\x07");
+        let events = s.take_events();
+        assert!(events.contains(&OscEvent::Command("cargo test; --all".into())));
+        assert!(events.contains(&OscEvent::ViMode(true)));
+        s.feed(b"\x1b]633;V;main\x07");
+        assert!(s.take_events().contains(&OscEvent::ViMode(false)));
     }
 
     #[test]

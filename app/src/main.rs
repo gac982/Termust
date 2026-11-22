@@ -1,3 +1,4 @@
+mod history;
 mod tabs;
 
 use gtk::gdk;
@@ -11,6 +12,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 use tabs::TabManager;
+use termust_core::history::{HistoryEntry, HistoryIndex, HistorySource};
 use termust_core::keymap::{
     resolve_shortcut, Action, Focus, Key as CoreKey, KeyConfig, KeyEvent, Mods,
 };
@@ -240,8 +242,32 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     toast_overlay.set_child(Some(manager.borrow().tab_view()));
     toolbar.set_content(Some(&toast_overlay));
 
+    let history_index = Rc::new(RefCell::new(HistoryIndex::new()));
+    let history =
+        history::HistoryController::new(history_index.clone(), home.clone(), toast_overlay.clone());
+
     {
         let group = gtk::gio::SimpleActionGroup::new();
+        let history_action = gtk::gio::SimpleAction::new("history", None);
+        {
+            let manager = manager.clone();
+            let history = history.clone();
+            let toast = toast_overlay.clone();
+            history_action.connect_activate(move |_, _| {
+                open_history(&manager, &history, &toast);
+            });
+        }
+        group.add_action(&history_action);
+        let clear_history = gtk::gio::SimpleAction::new("clear-history", None);
+        {
+            let index = history_index.clone();
+            let toast = toast_overlay.clone();
+            clear_history.connect_activate(move |_, _| {
+                index.borrow_mut().clear();
+                toast.add_toast(libadwaita::Toast::new("Historial de comandos borrado"));
+            });
+        }
+        group.add_action(&clear_history);
         let split_right = gtk::gio::SimpleAction::new("split-right", None);
         {
             let manager = manager.clone();
@@ -311,6 +337,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         designs.append(Some("Tres columnas"), Some("pane.preset-three-columns"));
         designs.append(Some("Cuadrícula 2×2"), Some("pane.preset-grid"));
         menu.append_submenu(Some("Diseños"), &designs);
+        menu.append(Some("Historial de comandos"), Some("pane.history"));
+        menu.append(Some("Borrar historial"), Some("pane.clear-history"));
         menu.append(Some("Renombrar pestaña"), Some("pane.rename-tab"));
         menu.append(Some("Cerrar panel"), Some("pane.close-pane"));
         let menu_button = gtk::MenuButton::builder()
@@ -327,9 +355,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let manager = manager.clone();
         let home = home.clone();
         let toast_overlay = toast_overlay.clone();
+        let history = history.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
+            if history.is_open() {
+                return glib::Propagation::Proceed;
+            }
             let Some(key) = map_key(keyval) else {
                 return glib::Propagation::Proceed;
             };
@@ -339,6 +371,17 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 alt: state.contains(gdk::ModifierType::ALT_MASK),
                 logo: state.contains(gdk::ModifierType::SUPER_MASK),
             };
+            if key == CoreKey::Up && mods == Mods::none() {
+                let ready = manager
+                    .try_borrow()
+                    .ok()
+                    .and_then(|manager| manager.active_view().map(|view| view.history_ready()))
+                    .unwrap_or(false);
+                if ready {
+                    open_history(&manager, &history, &toast_overlay);
+                    return glib::Propagation::Stop;
+                }
+            }
             let Some(action) = resolve_shortcut(
                 KeyEvent::new(key, mods),
                 Focus::Terminal,
@@ -401,8 +444,22 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
 
     {
         let manager = manager.clone();
+        let history_index = history_index.clone();
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
+            let records = manager.borrow().take_history_records();
+            if !records.is_empty() {
+                let mut index = history_index.borrow_mut();
+                for record in records {
+                    index.insert(HistoryEntry::new(
+                        record.text,
+                        record.cwd,
+                        record.timestamp,
+                        record.exit_code,
+                        HistorySource::Session,
+                    ));
+                }
+            }
             glib::ControlFlow::Continue
         });
     }
@@ -614,6 +671,124 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         std::process::exit(1);
                     }
                 });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_HISTORY_TEST").is_some() {
+        history_index.borrow_mut().insert(HistoryEntry::new(
+            "echo HISTORY_OK",
+            home.clone(),
+            0,
+            Some(0),
+            HistorySource::Session,
+        ));
+        let manager = manager.clone();
+        let history = history.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            let anchor = manager
+                .borrow()
+                .active_view()
+                .map(|view| view.widget().clone());
+            let Some(anchor) = anchor else {
+                eprintln!("termust-history-test: FAIL sin vista");
+                std::process::exit(1);
+            };
+            let inserted: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+            let captured = inserted.clone();
+            let insert: Rc<dyn Fn(String)> =
+                Rc::new(move |text| *captured.borrow_mut() = Some(text));
+            history.open(&anchor, insert);
+            let history2 = history.clone();
+            let app2 = app.clone();
+            let inserted2 = inserted.clone();
+            glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                let open = history2.is_open();
+                let rows = history2.row_count();
+                history2.insert_selected();
+                let text = inserted2.borrow().clone();
+                let ok = open
+                    && rows >= 1
+                    && text.as_deref() == Some("echo HISTORY_OK")
+                    && !history2.is_open();
+                eprintln!(
+                    "termust-history-test: open={open} rows={rows} text={text:?} closed={} {}",
+                    !history2.is_open(),
+                    if ok { "ok" } else { "FAIL" }
+                );
+                if !ok {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_HISTORY_READY_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(2500), move || {
+            let initial = manager
+                .borrow()
+                .active_view()
+                .map(|view| view.history_ready())
+                .unwrap_or(false);
+            manager.borrow().send_active(b"x");
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                let typed = manager2
+                    .borrow()
+                    .active_view()
+                    .map(|view| view.history_ready())
+                    .unwrap_or(true);
+                manager2.borrow().send_active(&[3]);
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(800), move || {
+                    let again = manager3
+                        .borrow()
+                        .active_view()
+                        .map(|view| view.history_ready())
+                        .unwrap_or(false);
+                    let ok = initial && !typed && again;
+                    eprintln!(
+                        "termust-history-ready: inicial={initial} con_texto={} tras_ctrl_c={again} {}",
+                        !typed,
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    if !ok {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_HISTORY_CAPTURE_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let history_index = history_index.clone();
+        glib::timeout_add_local_once(Duration::from_millis(2500), move || {
+            manager.borrow().send_active(b"echo HISTORY_REC\n");
+            let history_index = history_index.clone();
+            let app = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                let found = history_index
+                    .borrow()
+                    .search("HISTORY_REC", 5)
+                    .iter()
+                    .any(|entry| entry.text == "echo HISTORY_REC");
+                eprintln!(
+                    "termust-history-capture: encontrado={found} {}",
+                    if found { "ok" } else { "FAIL" }
+                );
+                if !found {
+                    std::process::exit(1);
+                }
+                app.quit();
             });
         });
     }
@@ -863,4 +1038,43 @@ impl SessionSaver {
     fn schedule(&self, snapshot: termust_store::SessionSnapshot) {
         let _ = self.tx.send(snapshot);
     }
+}
+
+fn open_history(
+    manager: &Rc<RefCell<TabManager>>,
+    history: &Rc<history::HistoryController>,
+    toast: &libadwaita::ToastOverlay,
+) {
+    let anchor = {
+        let Ok(manager) = manager.try_borrow() else {
+            return;
+        };
+        manager.active_view().map(|view| view.widget().clone())
+    };
+    let Some(anchor) = anchor else {
+        return;
+    };
+    let manager_insert = manager.clone();
+    let toast = toast.clone();
+    let insert: Rc<dyn Fn(String)> = Rc::new(move |text| {
+        let Ok(manager) = manager_insert.try_borrow() else {
+            return;
+        };
+        let Some(view) = manager.active_view() else {
+            return;
+        };
+        let bracketed = view.bracketed_paste();
+        match termust_core::history::insertion_payload(&text, bracketed) {
+            Ok(bytes) => {
+                view.write_input(&bytes);
+                view.grab_focus();
+            }
+            Err(_) => {
+                toast.add_toast(libadwaita::Toast::new(
+                    "El comando es multilínea y el shell no soporta bracketed paste.",
+                ));
+            }
+        }
+    });
+    history.open(&anchor, insert);
 }

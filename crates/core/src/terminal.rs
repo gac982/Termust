@@ -150,6 +150,15 @@ pub struct PromptStatus {
     pub last_exit: Option<i32>,
 }
 
+/// Comando completado, capturado por OSC 133/633.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandRecord {
+    pub text: String,
+    pub cwd: std::path::PathBuf,
+    pub timestamp: u64,
+    pub exit_code: Option<i32>,
+}
+
 /// Puerto del motor de emulación VT.
 pub trait TerminalEngine {
     fn feed(&mut self, bytes: &[u8]);
@@ -163,5 +172,19 @@ pub trait TerminalEngine {
     /// Respuestas que el motor debe escribir de vuelta al PTY (DSR, DA, etc.).
     fn take_responses(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
+    }
+
+    /// ¿El prompt está vacío y listo para abrir el historial? (FR-13.2)
+    fn history_ready(&mut self) -> bool {
+        false
+    }
+
+    /// Comandos completados desde la última llamada.
+    fn take_history(&mut self) -> Vec<CommandRecord> {
+        Vec::new()
+    }
+
+    fn bracketed_paste(&self) -> bool {
+        false
     }
 }

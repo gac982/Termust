@@ -730,6 +730,27 @@ impl TabManager {
             .map(|tab| tab.active_pane)
     }
 
+    pub fn active_view(&self) -> Option<&TerminalView> {
+        let index = self.active_entry_index()?;
+        let entry = &self.entries[index];
+        let active = self
+            .model
+            .borrow()
+            .get(entry.id)
+            .map(|tab| tab.active_pane)?;
+        entry.panes.get(&active)
+    }
+
+    pub fn take_history_records(&self) -> Vec<termust_core::terminal::CommandRecord> {
+        let mut out = Vec::new();
+        for entry in &self.entries {
+            for view in entry.panes.values() {
+                out.extend(view.take_history());
+            }
+        }
+        out
+    }
+
     pub fn active_cwd(&self) -> Option<PathBuf> {
         let index = self.active_entry_index()?;
         let entry = &self.entries[index];
