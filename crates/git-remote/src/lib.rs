@@ -79,6 +79,18 @@ impl std::fmt::Display for RemoteError {
 
 impl std::error::Error for RemoteError {}
 
+impl From<String> for RemoteError {
+    fn from(value: String) -> Self {
+        RemoteError(value)
+    }
+}
+
+impl From<&str> for RemoteError {
+    fn from(value: &str) -> Self {
+        RemoteError(value.to_string())
+    }
+}
+
 fn error(message: &str) -> RemoteError {
     RemoteError(message.to_string())
 }
@@ -286,7 +298,9 @@ pub fn push_env(
     ];
     match transport {
         Transport::Ssh => {
-            env.push((OsString::from("GIT_SSH_COMMAND"), OsString::from("ssh")));
+            // Un GIT_SSH_COMMAND explícito se propaga al host; por defecto ssh.
+            let ssh = std::env::var_os("GIT_SSH_COMMAND").unwrap_or_else(|| OsString::from("ssh"));
+            env.push((OsString::from("GIT_SSH_COMMAND"), ssh));
         }
         Transport::Https => {
             if let Some(askpass) = askpass {

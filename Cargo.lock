@@ -1292,10 +1292,12 @@ version = "0.1.0"
 dependencies = [
  "gtk4",
  "libadwaita",
+ "libc",
  "pangocairo",
  "termust-core",
  "termust-fs-local",
  "termust-git-local",
+ "termust-git-remote",
  "termust-host-exec",
  "termust-pty-unix",
  "termust-render-cairo",
@@ -1304,6 +1306,7 @@ dependencies = [
  "termust-term-engine",
  "termust-text-render",
  "termust-ui",
+ "termust-vault",
 ]
 
 [[package]]
