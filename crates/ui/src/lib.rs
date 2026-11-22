@@ -42,6 +42,12 @@ impl TerminalView {
         area.set_vexpand(true);
         area.set_focusable(true);
         area.set_can_focus(true);
+        area.set_accessible_role(gtk::AccessibleRole::TextBox);
+        area.update_property(&[
+            gtk::accessible::Property::Label("Terminal"),
+            gtk::accessible::Property::Description("Salida del terminal"),
+            gtk::accessible::Property::ReadOnly(true),
+        ]);
 
         let engine = Rc::new(RefCell::new(engine));
         let session = Rc::new(RefCell::new(session));
@@ -534,6 +540,12 @@ impl TerminalView {
 
     pub fn history_size(&self) -> usize {
         self.engine.borrow_mut().snapshot().history_size
+    }
+
+    /// Texto accesible para lectores de pantalla (última línea visible).
+    pub fn set_accessible_description(&self, text: &str) {
+        self.area
+            .update_property(&[gtk::accessible::Property::Description(text)]);
     }
 
     pub fn set_history_limit(&self, lines: usize) {

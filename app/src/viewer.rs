@@ -132,18 +132,21 @@ impl Viewer {
         let close_button = gtk::Button::from_icon_name("go-previous-symbolic");
         close_button.add_css_class("flat");
         close_button.set_tooltip_text(Some("Volver al terminal"));
+        close_button.update_property(&[gtk::accessible::Property::Label("Volver al terminal")]);
 
         let search_toggle = gtk::ToggleButton::builder()
             .icon_name("edit-find-symbolic")
             .tooltip_text("Buscar (Ctrl+F)")
             .build();
         search_toggle.add_css_class("flat");
+        search_toggle.update_property(&[gtk::accessible::Property::Label("Buscar")]);
 
         let outline_button = gtk::MenuButton::builder()
             .icon_name("view-list-symbolic")
             .tooltip_text("Esquema del archivo")
             .build();
         outline_button.add_css_class("flat");
+        outline_button.update_property(&[gtk::accessible::Property::Label("Esquema del archivo")]);
         let outline_popover = gtk::Popover::new();
         let outline_list = gtk::ListBox::new();
         outline_list.set_selection_mode(gtk::SelectionMode::Single);
@@ -158,6 +161,8 @@ impl Viewer {
 
         let editor_button = gtk::Button::from_icon_name("document-edit-symbolic");
         editor_button.add_css_class("flat");
+        editor_button
+            .update_property(&[gtk::accessible::Property::Label("Abrir en editor externo")]);
         editor_button.set_tooltip_text(Some("Abrir en editor externo"));
 
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);

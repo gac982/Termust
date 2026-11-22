@@ -10,6 +10,7 @@ use std::cell::Cell;
 use std::rc::{Rc, Weak};
 
 use crate::appearance::{display_name, Appearance, AUTO_THEME};
+use crate::i18n;
 
 pub struct PreferencesController {
     dialog: PreferencesDialog,
@@ -34,11 +35,11 @@ impl PreferencesController {
         dialog.set_title("Preferencias");
 
         let page = PreferencesPage::builder()
-            .title("Apariencia")
+            .title(i18n::tr("Apariencia"))
             .icon_name("applications-graphics-symbolic")
             .build();
 
-        let theme_group = PreferencesGroup::builder().title("Tema").build();
+        let theme_group = PreferencesGroup::builder().title(i18n::tr("Tema")).build();
         let theme_ids: Vec<String> = std::iter::once(AUTO_THEME.to_string())
             .chain(appearance.themes().iter().map(|theme| theme.id.clone()))
             .collect();
@@ -47,8 +48,8 @@ impl PreferencesController {
             .collect();
         let strings = gtk::StringList::new(&names.iter().map(String::as_str).collect::<Vec<_>>());
         let theme_row = ComboRow::builder()
-            .title("Tema")
-            .subtitle("Sigue al sistema o fuerza una paleta")
+            .title(i18n::tr("Tema"))
+            .subtitle(i18n::tr("Sigue al sistema o fuerza una paleta"))
             .model(&strings)
             .build();
 
@@ -74,13 +75,13 @@ impl PreferencesController {
         let light_strings =
             gtk::StringList::new(&light_names.iter().map(String::as_str).collect::<Vec<_>>());
         let dark_row = ComboRow::builder()
-            .title("Tema oscuro")
-            .subtitle("Se usa cuando el sistema está en modo oscuro")
+            .title(i18n::tr("Tema oscuro"))
+            .subtitle(i18n::tr("Se usa cuando el sistema está en modo oscuro"))
             .model(&dark_strings)
             .build();
         let light_row = ComboRow::builder()
-            .title("Tema claro")
-            .subtitle("Se usa cuando el sistema está en modo claro")
+            .title(i18n::tr("Tema claro"))
+            .subtitle(i18n::tr("Se usa cuando el sistema está en modo claro"))
             .model(&light_strings)
             .build();
         dark_row.set_sensitive(false);
@@ -90,18 +91,24 @@ impl PreferencesController {
         theme_group.add(&light_row);
         page.add(&theme_group);
 
-        let contrast_group = PreferencesGroup::builder().title("Contraste").build();
-        let contrast_row = ActionRow::builder().title("Contraste del tema").build();
+        let contrast_group = PreferencesGroup::builder()
+            .title(i18n::tr("Contraste"))
+            .build();
+        let contrast_row = ActionRow::builder()
+            .title(i18n::tr("Contraste del tema"))
+            .build();
         contrast_group.add(&contrast_row);
         page.add(&contrast_group);
 
         let transparency_group = PreferencesGroup::builder()
-            .title("Transparencia")
-            .description("Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque.")
+            .title(i18n::tr("Transparencia"))
+            .description(i18n::tr(
+                "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque.",
+            ))
             .build();
         let opacity_row = ActionRow::builder()
-            .title("Transparencia del fondo")
-            .subtitle("Solo el fondo; sin desenfoque")
+            .title(i18n::tr("Transparencia del fondo"))
+            .subtitle(i18n::tr("Solo el fondo; sin desenfoque"))
             .build();
         let opacity_scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 5.0);
         opacity_scale.set_draw_value(true);
@@ -122,7 +129,7 @@ impl PreferencesController {
         transparency_group.add(&warning);
         page.add(&transparency_group);
 
-        let text_group = PreferencesGroup::builder().title("Texto").build();
+        let text_group = PreferencesGroup::builder().title(i18n::tr("Texto")).build();
         let zoom_row = SpinRow::with_range(0.5, 2.0, 0.1);
         zoom_row.set_title("Zoom de fuente");
         zoom_row.set_subtitle("Ctrl + / Ctrl − / Ctrl 0");
@@ -133,12 +140,14 @@ impl PreferencesController {
 
         if !appearance.import_errors().is_empty() {
             let errors_page = PreferencesPage::builder()
-                .title("Temas importados")
+                .title(i18n::tr("Temas importados"))
                 .icon_name("dialog-warning-symbolic")
                 .build();
             let group = PreferencesGroup::builder()
-                .title("Errores de importación")
-                .description("Los archivos de ~/.config/termust/themes se ignoraron.")
+                .title(i18n::tr("Errores de importación"))
+                .description(i18n::tr(
+                    "Los archivos de ~/.config/termust/themes se ignoraron.",
+                ))
                 .build();
             for error in appearance.import_errors() {
                 let label = gtk::Label::new(Some(error));
@@ -386,8 +395,10 @@ pub fn restore_session_switch() -> Option<(libadwaita::SwitchRow, gio::Settings)
     }
     let settings = gio::Settings::new(termust_core::APP_ID);
     let row = libadwaita::SwitchRow::builder()
-        .title("Restaurar la sesión al iniciar")
-        .subtitle("Pestañas, paneles y directorios de la última sesión")
+        .title(i18n::tr("Restaurar la sesión al iniciar"))
+        .subtitle(i18n::tr(
+            "Pestañas, paneles y directorios de la última sesión",
+        ))
         .active(settings.boolean("restore-session"))
         .build();
     {
@@ -405,10 +416,12 @@ pub fn add_session_page(dialog: &PreferencesDialog) {
         return;
     };
     let page = PreferencesPage::builder()
-        .title("General")
+        .title(i18n::tr("General"))
         .icon_name("preferences-system-symbolic")
         .build();
-    let group = PreferencesGroup::builder().title("Sesión").build();
+    let group = PreferencesGroup::builder()
+        .title(i18n::tr("Sesión"))
+        .build();
     group.add(&row);
     page.add(&group);
     dialog.add(&page);

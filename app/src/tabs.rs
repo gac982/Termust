@@ -1058,6 +1058,12 @@ impl TabManager {
             let title = view.and_then(|view| view.title());
             let cwd = view.and_then(|view| view.cwd());
             let exited = entry.panes.values().any(|view| view.exited());
+            if let Some(view) = view {
+                let last = view.recent_lines(1).join(" ");
+                if !last.is_empty() {
+                    view.set_accessible_description(&last);
+                }
+            }
             let mut pane_lines = Vec::new();
             for pane in leaves {
                 if let Some(view) = entry.panes.get(&pane) {
