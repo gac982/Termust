@@ -26,6 +26,8 @@ pub struct TerminalView {
     bg_alpha: Rc<Cell<f64>>,
     frames: Rc<Cell<u64>>,
     exited: Rc<Cell<bool>>,
+    exit_code: Rc<Cell<Option<i32>>>,
+    last_output: Rc<Cell<Option<std::time::Instant>>>,
 }
 
 impl TerminalView {
@@ -53,6 +55,8 @@ impl TerminalView {
         let selection: Rc<Cell<Option<Selection>>> = Rc::new(Cell::new(None));
         let bg_alpha = Rc::new(Cell::new(1.0));
         let frames = Rc::new(Cell::new(0));
+        let exit_code = Rc::new(Cell::new(None));
+        let last_output = Rc::new(Cell::new(None));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
         let last_size = Rc::new(Cell::new((0usize, 0usize)));
@@ -347,12 +351,15 @@ impl TerminalView {
             let engine = engine.clone();
             let session = session.clone();
             let exited = exited.clone();
+            let exit_code = exit_code.clone();
+            let last_output = last_output.clone();
             let area_weak = area.downgrade();
             glib::timeout_add_local(Duration::from_millis(16), move || {
                 let mut got = false;
                 while let Ok(ev) = events.try_recv() {
                     match ev {
                         PtyEvent::Output(bytes) => {
+                            last_output.set(Some(std::time::Instant::now()));
                             {
                                 let mut e = engine.borrow_mut();
                                 e.feed(&bytes);
@@ -362,8 +369,9 @@ impl TerminalView {
                             }
                             got = true;
                         }
-                        PtyEvent::Exited(_) => {
+                        PtyEvent::Exited(code) => {
                             exited.set(true);
+                            exit_code.set(code);
                             got = true;
                         }
                         PtyEvent::Error(_) => {
@@ -395,6 +403,8 @@ impl TerminalView {
             bg_alpha,
             frames,
             exited,
+            exit_code,
+            last_output,
         }
     }
 
@@ -466,6 +476,40 @@ impl TerminalView {
 
     pub fn exited(&self) -> bool {
         self.exited.get()
+    }
+
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code.get()
+    }
+
+    pub fn output_age(&self) -> Option<Duration> {
+        self.last_output.get().map(|instant| instant.elapsed())
+    }
+
+    pub fn foreground_command(&self) -> Option<String> {
+        self.session.borrow().foreground_command()
+    }
+
+    /// Últimas `max` líneas visibles, sin relleno a la derecha.
+    pub fn recent_lines(&self, max: usize) -> Vec<String> {
+        let snapshot = self.engine.borrow_mut().snapshot();
+        let mut lines = Vec::with_capacity(snapshot.size.rows);
+        for row in 0..snapshot.size.rows {
+            let mut text = String::with_capacity(snapshot.size.cols);
+            for col in 0..snapshot.size.cols {
+                if let Some(cell) = snapshot.cell(row, col) {
+                    if !cell.attrs.wide_spacer {
+                        text.push(cell.ch);
+                    }
+                }
+            }
+            lines.push(text.trim_end().to_string());
+        }
+        while lines.last().is_some_and(|line| line.trim().is_empty()) {
+            lines.pop();
+        }
+        let start = lines.len().saturating_sub(max);
+        lines[start..].to_vec()
     }
 
     pub fn title(&self) -> Option<String> {

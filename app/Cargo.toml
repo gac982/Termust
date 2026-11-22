@@ -25,6 +25,7 @@ termust-git-local.workspace = true
 libc.workspace = true
 termust-git-remote.workspace = true
 termust-vault.workspace = true
+termust-agents.workspace = true
 termust-syntax.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true

@@ -245,6 +245,30 @@ impl PtySession for UnixPtySession {
         let fg = unsafe { libc::tcgetpgrp(self.query_fd) };
         fg > 0 && fg != self.pid as i32
     }
+
+    fn foreground_command(&self) -> Option<String> {
+        if self.query_fd < 0 {
+            return None;
+        }
+        let pgid = unsafe { libc::tcgetpgrp(self.query_fd) };
+        if pgid <= 0 || pgid == self.pid as i32 {
+            return None;
+        }
+        let bytes = std::fs::read(format!("/proc/{pgid}/cmdline")).ok()?;
+        if bytes.is_empty() {
+            return None;
+        }
+        let args: Vec<String> = bytes
+            .split(|byte| *byte == 0)
+            .filter(|part| !part.is_empty())
+            .map(|part| String::from_utf8_lossy(part).to_string())
+            .collect();
+        if args.is_empty() {
+            None
+        } else {
+            Some(args.join(" "))
+        }
+    }
 }
 
 impl Drop for UnixPtySession {

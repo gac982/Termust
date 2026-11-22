@@ -1,0 +1,10 @@
+schema_version = 1
+id = "antigravity"
+display_name = "Antigravity"
+icon = "avatar-default-symbolic"
+match_argv_regex = '(^|/)agy(\s|$)'
+match_title_regex = '(?i)antigravity|\bagy\b'
+title_sources = ["osc_title", "output_task_regex"]
+output_task_regex = '^\s*(?:Task|Working on|Tarea)[: ]\s*(.{1,120})$'
+waiting_input_regex = '(?i)(waiting for (input|your)|press enter|allow|\(y/n\))'
+active_window_ms = 3000

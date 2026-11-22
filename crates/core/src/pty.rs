@@ -45,6 +45,11 @@ pub trait PtySession: Send {
     fn has_foreground_job(&self) -> bool {
         false
     }
+
+    /// argv del proceso en foreground, si se puede leer en el host.
+    fn foreground_command(&self) -> Option<String> {
+        None
+    }
 }
 
 pub struct PtyHandle {

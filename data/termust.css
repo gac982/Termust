@@ -122,3 +122,24 @@ window.termust-transparent paned > separator {
 .termust-git .termust-git-conflict {
   color: #e5a50a;
 }
+
+/* Barra de agentes. */
+.termust-agent-bar {
+  border-top: 1px solid alpha(currentColor, 0.10);
+}
+
+.termust-agent-active {
+  color: #26a269;
+}
+
+.termust-agent-idle {
+  color: #e5a50a;
+}
+
+.termust-agent-waiting {
+  color: #1c71d8;
+}
+
+.termust-agent-exited {
+  color: #c01c28;
+}

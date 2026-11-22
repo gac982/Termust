@@ -23,6 +23,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use tab_sidebar::TabSidebar;
 use tabs::TabManager;
+use termust_agents::{AgentCatalog, AgentState, AgentStatus};
 use termust_core::history::{HistoryEntry, HistoryIndex, HistorySource};
 use termust_core::keymap::{
     resolve_shortcut, Action, Focus, Key as CoreKey, KeyConfig, KeyEvent, Mods,
@@ -119,6 +120,30 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let header = HeaderBar::new();
     let toolbar = ToolbarView::new();
     toolbar.add_top_bar(&header);
+
+    let agent_icon = gtk::Image::from_icon_name("avatar-default-symbolic");
+    let agent_name = gtk::Label::new(None);
+    agent_name.add_css_class("heading");
+    let agent_task = gtk::Label::new(None);
+    agent_task.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    agent_task.set_xalign(0.0);
+    agent_task.set_hexpand(true);
+    agent_task.add_css_class("dim-label");
+    agent_task.add_css_class("caption");
+    let agent_dot = gtk::Label::new(Some("●"));
+    agent_dot.add_css_class("termust-agent-dot");
+    let agent_bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    agent_bar.add_css_class("termust-agent-bar");
+    agent_bar.set_margin_top(4);
+    agent_bar.set_margin_bottom(4);
+    agent_bar.set_margin_start(10);
+    agent_bar.set_margin_end(10);
+    agent_bar.append(&agent_icon);
+    agent_bar.append(&agent_name);
+    agent_bar.append(&agent_task);
+    agent_bar.append(&agent_dot);
+    agent_bar.set_visible(false);
+    toolbar.add_bottom_bar(&agent_bar);
 
     let window = ApplicationWindow::builder()
         .application(app)
@@ -236,6 +261,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         );
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(250), move || app.quit());
+    }
+    let agent_catalog = Rc::new(AgentCatalog::load());
+    for error in &agent_catalog.errors {
+        eprintln!("termust: regla de agente ignorada: {error}");
     }
     for _ in 1..initial_tabs() {
         if let Err(e) = manager.borrow_mut().open_tab(home.clone()) {
@@ -720,10 +749,26 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let files_split = files_split.clone();
         let tab_sidebar = tab_sidebar.clone();
         let git_panel = git_panel.clone();
+        let agent_catalog = agent_catalog.clone();
+        let agent_bar = agent_bar.clone();
+        let agent_icon = agent_icon.clone();
+        let agent_name = agent_name.clone();
+        let agent_task = agent_task.clone();
+        let agent_dot = agent_dot.clone();
         let last_followed: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let last_git_cwd: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(500), move || {
             manager.borrow_mut().update_titles();
+            manager.borrow_mut().update_agents(&agent_catalog);
+            let agent = manager.borrow().active_agent();
+            update_agent_bar(
+                &agent_bar,
+                &agent_icon,
+                &agent_name,
+                &agent_task,
+                &agent_dot,
+                agent.as_ref(),
+            );
             tab_sidebar.refresh();
             if files_split.shows_sidebar() {
                 if let Some(cwd) = manager.borrow().active_cwd() {
@@ -2004,6 +2049,109 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         return window;
     }
 
+    if std::env::var_os("TERMUST_AGENT_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let agent_bar = agent_bar.clone();
+        let agent_icon = agent_icon.clone();
+        let agent_name = agent_name.clone();
+        let agent_task = agent_task.clone();
+        let agent_dot = agent_dot.clone();
+        let step = Rc::new(Cell::new(0usize));
+        let mut failed = false;
+        glib::timeout_add_local(Duration::from_millis(700), move || {
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-agent-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            let current = step.get();
+            step.set(current + 1);
+            match current {
+                0 => {
+                    manager
+                        .borrow()
+                        .send_active(b"printf '\\033]0;opencode\\007'; exec sleep 30\n");
+                }
+                1 => {
+                    let agent = manager.borrow().active_agent();
+                    check(
+                        "detecta opencode",
+                        agent.as_ref().map(|agent| agent.id.as_str()) == Some("opencode"),
+                    );
+                    check(
+                        "activo al recibir output",
+                        agent
+                            .as_ref()
+                            .map(|agent| agent.state == AgentState::Active)
+                            .unwrap_or(false),
+                    );
+                    check("barra visible", agent_bar.is_visible());
+                }
+                2..=5 => {}
+                6 => {
+                    let agent = manager.borrow().active_agent();
+                    check(
+                        "silencio pasa a Idle",
+                        agent
+                            .as_ref()
+                            .map(|agent| agent.state == AgentState::Idle)
+                            .unwrap_or(false),
+                    );
+                    check(
+                        "Idle no es verde",
+                        agent
+                            .as_ref()
+                            .map(|agent| !agent.state.is_green())
+                            .unwrap_or(false),
+                    );
+                    manager.borrow().send_active(&[3]);
+                }
+                7 => {
+                    let agent = manager.borrow().active_agent();
+                    check(
+                        "terminado tras Ctrl+C",
+                        agent
+                            .as_ref()
+                            .map(|agent| matches!(agent.state, AgentState::Exited { .. }))
+                            .unwrap_or(true),
+                    );
+                    let injected = AgentStatus {
+                        id: "antigravity".into(),
+                        display_name: "Antigravity".into(),
+                        icon: "avatar-default-symbolic".into(),
+                        task: "Antigravity · /tmp/proyecto".into(),
+                        state: AgentState::WaitingInput,
+                    };
+                    update_agent_bar(
+                        &agent_bar,
+                        &agent_icon,
+                        &agent_name,
+                        &agent_task,
+                        &agent_dot,
+                        Some(&injected),
+                    );
+                    check(
+                        "barra muestra Antigravity",
+                        agent_name.text() == "Antigravity"
+                            && agent_task.text().contains("Antigravity")
+                            && agent_dot.has_css_class("termust-agent-waiting"),
+                    );
+                    eprintln!("termust-agent-test: {}", if failed { "FAIL" } else { "ok" });
+                    if failed {
+                        std::process::exit(1);
+                    }
+                    app.quit();
+                    return glib::ControlFlow::Break;
+                }
+                _ => {}
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -2319,4 +2467,28 @@ fn file_hash(path: &std::path::Path) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     hasher.finish()
+}
+
+fn update_agent_bar(
+    bar: &gtk::Box,
+    icon: &gtk::Image,
+    name: &gtk::Label,
+    task: &gtk::Label,
+    dot: &gtk::Label,
+    agent: Option<&AgentStatus>,
+) {
+    let Some(agent) = agent else {
+        bar.set_visible(false);
+        return;
+    };
+    bar.set_visible(true);
+    icon.set_icon_name(Some(&agent.icon));
+    if icon.icon_name().is_none() {
+        icon.set_icon_name(Some("avatar-default-symbolic"));
+    }
+    name.set_text(&agent.display_name);
+    task.set_text(&agent.task);
+    task.set_tooltip_text(Some(&agent.task));
+    dot.set_tooltip_text(Some(agent.state.label()));
+    dot.set_css_classes(&["termust-agent-dot", agent.state.css_class()]);
 }

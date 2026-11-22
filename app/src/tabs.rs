@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
+use termust_agents::{AgentCatalog, AgentInput, AgentStatus};
 use termust_core::pty::{PtySpawner, SpawnSpec};
 use termust_core::tabs::{
     fits_min_width, Direction, PaneId, PaneTree, Preset, SplitError, SplitOrientation, TabId,
@@ -51,6 +52,7 @@ pub struct TabManager {
     integration: ShellIntegration,
     window: ApplicationWindow,
     appearance: Rc<Appearance>,
+    agents: HashMap<(TabId, PaneId), AgentStatus>,
     suspend_ratios: Rc<Cell<bool>>,
     suspend_focus: Rc<Cell<bool>>,
     close_dialog_open: Rc<Cell<bool>>,
@@ -84,6 +86,7 @@ impl TabManager {
             integration,
             window,
             appearance,
+            agents: HashMap::new(),
             suspend_ratios: Rc::new(Cell::new(false)),
             suspend_focus: Rc::new(Cell::new(false)),
             close_dialog_open: Rc::new(Cell::new(false)),
@@ -137,6 +140,7 @@ impl TabManager {
             integration,
             window,
             appearance,
+            agents: HashMap::new(),
             suspend_ratios: Rc::new(Cell::new(false)),
             suspend_focus: Rc::new(Cell::new(false)),
             close_dialog_open: Rc::new(Cell::new(false)),
@@ -766,6 +770,53 @@ impl TabManager {
     }
 
     /// Pestañas en orden, con título visible, cwd y cuál está activa.
+    /// Detecta agentes en todos los paneles y actualiza su estado.
+    pub fn update_agents(&mut self, catalog: &AgentCatalog) {
+        let mut detected: HashMap<(TabId, PaneId), AgentStatus> = HashMap::new();
+        for entry in &self.entries {
+            for (pane, view) in &entry.panes {
+                if view.exited() {
+                    // Se conserva la detección para mostrar Exited.
+                }
+                let argv = view.foreground_command();
+                let title = view.title();
+                let Some(rule) = catalog.detect(argv.as_deref(), title.as_deref()) else {
+                    continue;
+                };
+                let lines = view.recent_lines(50);
+                let cwd = view
+                    .cwd()
+                    .or_else(|| entry.pane_cwds.get(pane).cloned())
+                    .unwrap_or_default();
+                let alive = !view.exited() && view.has_foreground_job();
+                let status = catalog.evaluate(
+                    rule,
+                    &AgentInput {
+                        title: title.as_deref(),
+                        recent_lines: &lines,
+                        alive,
+                        exit_code: view.exit_code(),
+                        activity_age: view.output_age(),
+                        cwd: &cwd,
+                    },
+                );
+                detected.insert((entry.id, *pane), status);
+            }
+        }
+        self.agents = detected;
+    }
+
+    pub fn active_agent(&self) -> Option<AgentStatus> {
+        let index = self.active_entry_index()?;
+        let entry = &self.entries[index];
+        let pane = self
+            .model
+            .borrow()
+            .get(entry.id)
+            .map(|tab| tab.active_pane)?;
+        self.agents.get(&(entry.id, pane)).cloned()
+    }
+
     pub fn tab_summaries(&self) -> Vec<TabSummary> {
         let active = self.active_entry_index();
         let model = self.model.borrow();
