@@ -464,6 +464,22 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_interrupts_foreground_process() {
+        let spawner = UnixPtySpawner::new().unwrap();
+        let mut handle = spawner
+            .spawn(spec(&[
+                "/bin/sh",
+                "-c",
+                "trap 'echo GOTINT; exit 0' INT; sleep 30",
+            ]))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        handle.session.write(&[3]).unwrap();
+        let (out, code) = collect(&mut handle, true);
+        assert!(out.contains("GOTINT"), "out={out:?} code={code:?}");
+    }
+
+    #[test]
     fn exit_code_propagates() {
         let spawner = UnixPtySpawner::new().unwrap();
         let mut handle = spawner.spawn(spec(&["/bin/sh", "-c", "exit 7"])).unwrap();
