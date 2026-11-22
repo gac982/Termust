@@ -71,6 +71,19 @@ pub struct Theme {
     pub palette: [Rgb; 16],
 }
 
+impl From<&termust_core::theme::Theme> for Theme {
+    fn from(theme: &termust_core::theme::Theme) -> Self {
+        Self {
+            fg: theme.fg,
+            bg: theme.bg,
+            cursor: theme.cursor,
+            selection_bg: theme.selection_bg,
+            selection_fg: theme.selection_fg,
+            palette: theme.palette,
+        }
+    }
+}
+
 impl Default for Theme {
     fn default() -> Self {
         Self {

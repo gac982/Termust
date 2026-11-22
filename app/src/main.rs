@@ -1,11 +1,15 @@
+mod appearance;
 mod history;
+mod preferences;
 mod tabs;
 
+use appearance::{Appearance, AUTO_THEME};
 use gtk::gdk;
 use gtk::glib;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use libadwaita::{Application, ApplicationWindow, HeaderBar, ToolbarView};
+use preferences::PreferencesController;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -119,6 +123,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         window.maximize();
     }
 
+    let appearance = Appearance::load(&home, termust_ui::system_monospace_font());
     let spawner = match UnixPtySpawner::new() {
         Ok(s) => Rc::new(s),
         Err(e) => {
@@ -145,6 +150,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             integration.clone(),
             home.clone(),
             window.clone(),
+            appearance.clone(),
         )
     };
     let manager = match load {
@@ -156,6 +162,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     shell.clone(),
                     integration.clone(),
                     window.clone(),
+                    appearance.clone(),
                     restored.model,
                     restored.pane_cwds,
                 ) {
@@ -203,6 +210,17 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         }
     };
     TabManager::connect(&manager);
+    {
+        let manager = Rc::downgrade(&manager);
+        appearance.on_change(move || {
+            if let Some(manager) = manager.upgrade() {
+                if let Ok(manager) = manager.try_borrow() {
+                    manager.refresh_appearance();
+                }
+            }
+        });
+    }
+    manager.borrow().refresh_appearance();
     if std::env::var_os("TERMUST_STARTUP_TEST").is_some() {
         eprintln!(
             "termust-startup: pestaña activa adjunta en {} ms",
@@ -245,6 +263,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let history_index = Rc::new(RefCell::new(HistoryIndex::new()));
     let history =
         history::HistoryController::new(history_index.clone(), home.clone(), toast_overlay.clone());
+    let preferences = PreferencesController::new(appearance.clone());
+    preferences::add_session_page(preferences.dialog());
 
     {
         let group = gtk::gio::SimpleActionGroup::new();
@@ -258,6 +278,30 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             });
         }
         group.add_action(&history_action);
+        let prefs_action = gtk::gio::SimpleAction::new("preferences", None);
+        {
+            let window = window.clone();
+            let preferences = preferences.clone();
+            prefs_action.connect_activate(move |_, _| {
+                preferences.present(&window);
+            });
+        }
+        group.add_action(&prefs_action);
+        let tab_theme = gtk::gio::SimpleAction::new("tab-theme", Some(glib::VariantTy::STRING));
+        {
+            let manager = manager.clone();
+            let toast = toast_overlay.clone();
+            tab_theme.connect_activate(move |_, param| {
+                let Some(id) = param.and_then(|value| value.str()).map(str::to_string) else {
+                    return;
+                };
+                let theme_id = if id == AUTO_THEME { None } else { Some(id) };
+                if !manager.borrow_mut().set_active_tab_theme(theme_id) {
+                    toast.add_toast(libadwaita::Toast::new("No hay pestaña activa"));
+                }
+            });
+        }
+        group.add_action(&tab_theme);
         let clear_history = gtk::gio::SimpleAction::new("clear-history", None);
         {
             let index = history_index.clone();
@@ -337,6 +381,18 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         designs.append(Some("Tres columnas"), Some("pane.preset-three-columns"));
         designs.append(Some("Cuadrícula 2×2"), Some("pane.preset-grid"));
         menu.append_submenu(Some("Diseños"), &designs);
+        let themes_menu = gtk::gio::Menu::new();
+        let global_theme = gtk::gio::MenuItem::new(Some("Tema global"), None);
+        global_theme
+            .set_action_and_target_value(Some("pane.tab-theme"), Some(&AUTO_THEME.to_variant()));
+        themes_menu.append_item(&global_theme);
+        for theme in appearance.themes() {
+            let item = gtk::gio::MenuItem::new(Some(&theme.name), None);
+            item.set_action_and_target_value(Some("pane.tab-theme"), Some(&theme.id.to_variant()));
+            themes_menu.append_item(&item);
+        }
+        menu.append_submenu(Some("Tema de la pestaña"), &themes_menu);
+        menu.append(Some("Preferencias"), Some("pane.preferences"));
         menu.append(Some("Historial de comandos"), Some("pane.history"));
         menu.append(Some("Borrar historial"), Some("pane.clear-history"));
         menu.append(Some("Renombrar pestaña"), Some("pane.rename-tab"));
@@ -356,6 +412,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let home = home.clone();
         let toast_overlay = toast_overlay.clone();
         let history = history.clone();
+        let appearance = appearance.clone();
+        let preferences = preferences.clone();
+        let key_window = window.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
@@ -390,6 +449,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 return glib::Propagation::Proceed;
             };
 
+            if action == Action::Preferences {
+                preferences.present(&key_window);
+                return glib::Propagation::Stop;
+            }
             if action == Action::RenameTab {
                 TabManager::rename_dialog(&manager);
                 return glib::Propagation::Stop;
@@ -422,6 +485,18 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 }
                 Action::ResizePane(direction) => {
                     mgr.resize_direction(direction);
+                }
+                Action::ZoomIn => {
+                    appearance.zoom(1);
+                    mgr.refresh_appearance();
+                }
+                Action::ZoomOut => {
+                    appearance.zoom(-1);
+                    mgr.refresh_appearance();
+                }
+                Action::ZoomReset => {
+                    appearance.set_font_scale(1.0);
+                    mgr.refresh_appearance();
                 }
                 _ => {}
             }
@@ -793,6 +868,216 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_THEME_TEST").is_some() {
+        let appearance = appearance.clone();
+        let manager = manager.clone();
+        let preferences = preferences.clone();
+        let window = window.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            let before_theme = appearance.theme_id();
+            let before_opacity = appearance.opacity();
+            let before_scale = appearance.font_scale();
+            appearance.set_theme_id(Some("catppuccin-mocha"));
+            appearance.set_opacity(50);
+            appearance.set_font_scale(1.5);
+            let expected = appearance.theme("catppuccin-mocha").map(|theme| theme.fg);
+            let gruvbox = appearance.theme("gruvbox-dark").map(|theme| theme.fg);
+            let base = appearance.base_font().size;
+            let high = appearance.high_contrast();
+            let manager2 = manager.clone();
+            let appearance2 = appearance.clone();
+            let preferences2 = preferences.clone();
+            let window2 = window.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(400), move || {
+                let mut failed = false;
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-theme-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed |= !ok;
+                };
+                manager2.borrow().refresh_appearance();
+                let state = manager2
+                    .borrow()
+                    .active_view()
+                    .map(|view| (view.theme_fg(), view.bg_alpha(), view.font_size()));
+                let Some((fg, alpha, size)) = state else {
+                    eprintln!("termust-theme-test: sin vista FAIL");
+                    std::process::exit(1);
+                };
+                check("tema global aplicado", Some(fg) == expected);
+                check(
+                    "opacidad solo de fondo",
+                    if high {
+                        alpha == 1.0
+                    } else {
+                        (alpha - 0.5).abs() < 0.01
+                    },
+                );
+                check("zoom aplicado", (size - base * 1.5).abs() < 0.01);
+                check(
+                    "ventana transparente",
+                    window2.has_css_class("termust-transparent") == !high,
+                );
+
+                manager2
+                    .borrow_mut()
+                    .set_active_tab_theme(Some("gruvbox-dark".to_string()));
+                let tab_fg = manager2.borrow().active_view().map(|view| view.theme_fg());
+                check("tema por pestaña", tab_fg == gruvbox);
+                manager2.borrow_mut().set_active_tab_theme(None);
+                let back_fg = manager2.borrow().active_view().map(|view| view.theme_fg());
+                check("vuelve al tema global", back_fg == expected);
+
+                preferences2.sync_now();
+                check(
+                    "preferencias listan el catálogo",
+                    preferences2.theme_count() >= 30,
+                );
+                check(
+                    "preferencias reflejan opacidad",
+                    (preferences2.opacity_value() - 50.0).abs() < 0.01,
+                );
+                check(
+                    "preferencias reflejan zoom",
+                    (preferences2.zoom_value() - 1.5).abs() < 0.01,
+                );
+                check(
+                    "transparencia según alto contraste",
+                    preferences2.transparency_sensitive() == !high,
+                );
+                appearance2.set_opacity(90);
+                preferences2.sync_now();
+                check(
+                    "aviso de contraste con transparencia",
+                    if high {
+                        !preferences2.warning_visible()
+                    } else {
+                        preferences2.warning_visible()
+                    },
+                );
+
+                let persisted = gtk::gio::SettingsSchemaSource::default()
+                    .filter(|source| source.lookup(termust_core::APP_ID, true).is_some())
+                    .map(|_| gtk::gio::Settings::new(termust_core::APP_ID))
+                    .filter(|settings| {
+                        settings
+                            .settings_schema()
+                            .map(|schema| schema.has_key("theme"))
+                            .unwrap_or(false)
+                    });
+                if let Some(settings) = persisted {
+                    check(
+                        "tema persistido en GSettings",
+                        settings.string("theme") == "catppuccin-mocha",
+                    );
+                    check(
+                        "zoom persistido en GSettings",
+                        (settings.double("font-scale") - 1.5).abs() < 0.01,
+                    );
+                }
+
+                appearance2.set_theme_id(if before_theme == AUTO_THEME {
+                    None
+                } else {
+                    Some(before_theme.as_str())
+                });
+                appearance2.set_opacity(before_opacity);
+                appearance2.set_font_scale(before_scale);
+                manager2.borrow().refresh_appearance();
+                eprintln!("termust-theme-test: {}", if failed { "FAIL" } else { "ok" });
+                if failed {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_OPACITY_COST_TEST").is_some() {
+        let appearance = appearance.clone();
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1000), move || {
+            let before = appearance.opacity();
+            let high = appearance.high_contrast();
+            let mut failed = false;
+            let mut results = Vec::new();
+            for percent in [0, 50, 100] {
+                appearance.set_opacity(percent);
+                manager.borrow().refresh_appearance();
+                let sample = {
+                    let manager = manager.borrow();
+                    manager.active_view().map(|view| {
+                        let per_frame = view.render_benchmark(800, 600, 40);
+                        (per_frame, view.bg_alpha())
+                    })
+                };
+                let Some((per_frame, alpha)) = sample else {
+                    eprintln!("termust-opacity-cost: sin vista FAIL");
+                    std::process::exit(1);
+                };
+                let expected = if high {
+                    1.0
+                } else {
+                    1.0 - percent as f64 / 100.0
+                };
+                let alpha_ok = (alpha - expected).abs() < 0.01;
+                failed |= !alpha_ok;
+                results.push((percent, per_frame, alpha));
+            }
+            for (percent, per_frame, alpha) in &results {
+                eprintln!(
+                    "termust-opacity-cost: opacidad={percent}% cuadro={:.2} ms alpha={alpha:.2} rss={} kB",
+                    per_frame.as_secs_f64() * 1000.0,
+                    rss_kb()
+                );
+            }
+            for (_, per_frame, _) in &results {
+                if per_frame.as_secs_f64() * 1000.0 > 100.0 {
+                    failed = true;
+                }
+            }
+            appearance.set_opacity(before);
+            manager.borrow().refresh_appearance();
+            eprintln!(
+                "termust-opacity-cost: {}",
+                if failed { "FAIL" } else { "ok" }
+            );
+            if failed {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
+    if std::env::var_os("TERMUST_PREFS_TEST").is_some() {
+        let preferences = preferences.clone();
+        let window = window.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            preferences.present(&window);
+            let preferences2 = preferences.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                let visible = preferences2.is_visible();
+                eprintln!(
+                    "termust-prefs-test: visible={visible} temas={} {}",
+                    preferences2.theme_count(),
+                    if visible { "ok" } else { "FAIL" }
+                );
+                preferences2.close();
+                if !visible {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
+        });
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -849,6 +1134,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     let mut manager = manager2.borrow_mut();
                     let _ = manager.split_active(SplitOrientation::Horizontal);
                     manager.rename_tab("seed-tab");
+                    manager.set_active_tab_theme(Some("gruvbox-dark".to_string()));
                     let _ = manager.open_tab(home2.clone());
                     manager.select_index(0);
                 }
@@ -876,15 +1162,17 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let panes = manager.active_pane_count();
             let cwd = manager.active_cwd();
             let title = manager.active_title_override();
+            let theme = manager.active_tab_theme_id();
             let ok = tabs == 2
                 && panes == 2
+                && theme.as_deref() == Some("gruvbox-dark")
                 && cwd
                     .as_ref()
                     .map(|path| path.ends_with("tmp"))
                     .unwrap_or(false)
                 && title.as_deref() == Some("seed-tab");
             eprintln!(
-                "termust-session-verify: tabs={tabs} panes={panes} cwd={cwd:?} title={title:?} {}",
+                "termust-session-verify: tabs={tabs} panes={panes} cwd={cwd:?} title={title:?} tema={theme:?} {}",
                 if ok { "ok" } else { "FAIL" }
             );
             if !ok {
@@ -1077,4 +1365,16 @@ fn open_history(
         }
     });
     history.open(&anchor, insert);
+}
+
+fn rss_kb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status.lines().find_map(|line| {
+                let value = line.strip_prefix("VmRSS:")?;
+                value.split_whitespace().next()?.parse().ok()
+            })
+        })
+        .unwrap_or(0)
 }

@@ -20,6 +20,8 @@ use termust_render_cairo::CairoRenderer;
 use termust_term_engine::AlacrittyEngine;
 use termust_ui::TerminalView;
 
+use crate::appearance::Appearance;
+
 struct Entry {
     id: TabId,
     page: TabPage,
@@ -38,6 +40,7 @@ pub struct TabManager {
     shell: PathBuf,
     integration: ShellIntegration,
     window: ApplicationWindow,
+    appearance: Rc<Appearance>,
     suspend_ratios: Rc<Cell<bool>>,
     suspend_focus: Rc<Cell<bool>>,
     close_dialog_open: Rc<Cell<bool>>,
@@ -51,6 +54,7 @@ impl TabManager {
         integration: ShellIntegration,
         home: PathBuf,
         window: ApplicationWindow,
+        appearance: Rc<Appearance>,
     ) -> Result<Self, String> {
         let tab_view = TabView::new();
         let tab_bar = TabBar::new();
@@ -69,6 +73,7 @@ impl TabManager {
             shell,
             integration,
             window,
+            appearance,
             suspend_ratios: Rc::new(Cell::new(false)),
             suspend_focus: Rc::new(Cell::new(false)),
             close_dialog_open: Rc::new(Cell::new(false)),
@@ -98,6 +103,7 @@ impl TabManager {
         shell: PathBuf,
         integration: ShellIntegration,
         window: ApplicationWindow,
+        appearance: Rc<Appearance>,
         model: TabModel,
         pane_cwds: Vec<HashMap<PaneId, PathBuf>>,
     ) -> Result<Self, String> {
@@ -120,6 +126,7 @@ impl TabManager {
             shell,
             integration,
             window,
+            appearance,
             suspend_ratios: Rc::new(Cell::new(false)),
             suspend_focus: Rc::new(Cell::new(false)),
             close_dialog_open: Rc::new(Cell::new(false)),
@@ -238,7 +245,7 @@ impl TabManager {
 
         let mut panes = HashMap::new();
         for (pane, cwd) in &resolved {
-            let view = self.spawn_view(cwd)?;
+            let view = self.spawn_view(tab_id, cwd)?;
             self.install_focus(&view, tab_id, *pane);
             panes.insert(*pane, view);
         }
@@ -276,7 +283,7 @@ impl TabManager {
         Ok(())
     }
 
-    fn spawn_view(&self, cwd: &Path) -> Result<TerminalView, String> {
+    fn spawn_view(&self, tab_id: TabId, cwd: &Path) -> Result<TerminalView, String> {
         let host_pty = termust_host_exec::host_pty();
         let command = shell_command(
             &self.shell,
@@ -297,12 +304,80 @@ impl TabManager {
             .map_err(|e| e.to_string())?;
         let engine = AlacrittyEngine::new(size, 2_000);
         let renderer = CairoRenderer::new();
-        Ok(TerminalView::new(
+        let view = TerminalView::new(
             Box::new(engine),
             handle.session,
             Box::new(renderer),
             handle.events,
-        ))
+        );
+        let tab_theme = self
+            .model
+            .borrow()
+            .get(tab_id)
+            .and_then(|tab| tab.theme_id.clone());
+        self.appearance.apply_to_view(&view, tab_theme.as_deref());
+        Ok(view)
+    }
+
+    /// Reaplica tema, zoom y opacidad a todas las vistas.
+    pub fn refresh_appearance(&self) {
+        for entry in &self.entries {
+            let tab_theme = self
+                .model
+                .borrow()
+                .get(entry.id)
+                .and_then(|tab| tab.theme_id.clone());
+            for view in entry.panes.values() {
+                self.appearance.apply_to_view(view, tab_theme.as_deref());
+            }
+        }
+        self.update_transparency();
+    }
+
+    fn update_transparency(&self) {
+        let transparent = self.appearance.bg_alpha() < 1.0;
+        if transparent {
+            self.window.add_css_class("termust-transparent");
+        } else {
+            self.window.remove_css_class("termust-transparent");
+        }
+    }
+
+    pub fn active_tab_theme_id(&self) -> Option<String> {
+        let tab_id = self.active_tab_id()?;
+        self.model
+            .borrow()
+            .get(tab_id)
+            .and_then(|tab| tab.theme_id.clone())
+    }
+
+    pub fn active_tab_id(&self) -> Option<TabId> {
+        let index = self.active_entry_index()?;
+        Some(self.entries[index].id)
+    }
+
+    /// Tema por pestaña; `None` vuelve al global.
+    pub fn set_tab_theme(&mut self, tab_id: TabId, theme_id: Option<String>) -> bool {
+        if !self
+            .model
+            .borrow_mut()
+            .set_theme_id(tab_id, theme_id.clone())
+        {
+            return false;
+        }
+        if let Some(entry) = self.entries.iter().find(|entry| entry.id == tab_id) {
+            for view in entry.panes.values() {
+                self.appearance.apply_to_view(view, theme_id.as_deref());
+            }
+        }
+        true
+    }
+
+    pub fn set_active_tab_theme(&mut self, theme_id: Option<String>) -> bool {
+        match self.active_tab_id() {
+            Some(tab_id) => self.set_tab_theme(tab_id, theme_id),
+            None => false,
+        }
     }
 
     fn install_focus(&self, view: &TerminalView, tab_id: TabId, pane: PaneId) {
@@ -478,7 +553,7 @@ impl TabManager {
                 _ => "No se pudo dividir el panel".to_string(),
             })?;
 
-        let view = match self.spawn_view(&cwd) {
+        let view = match self.spawn_view(tab_id, &cwd) {
             Ok(view) => view,
             Err(e) => {
                 let _ = self.model.borrow_mut().close_pane(tab_id, new_pane);
@@ -523,7 +598,7 @@ impl TabManager {
                 _ => "No se pudo aplicar el diseño".to_string(),
             })?;
         for pane in created {
-            let view = self.spawn_view(&cwd)?;
+            let view = self.spawn_view(tab_id, &cwd)?;
             self.install_focus(&view, tab_id, pane);
             if let Some(entry) = self.entries.iter_mut().find(|e| e.id == tab_id) {
                 entry.pane_cwds.insert(pane, cwd.clone());

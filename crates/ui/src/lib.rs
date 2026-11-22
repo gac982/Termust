@@ -9,7 +9,7 @@ use gtk4 as gtk;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use termust_core::mouse::{encode_mouse, MouseButton, MouseEventKind, MouseMods};
 use termust_core::pty::{PtyEvent, PtySession};
 use termust_core::terminal::{CommandRecord, Modes, PromptState, Size, Snapshot, TerminalEngine};
@@ -21,7 +21,10 @@ pub struct TerminalView {
     session: Rc<RefCell<Box<dyn PtySession>>>,
     theme: Rc<RefCell<Theme>>,
     font: Rc<RefCell<FontSpec>>,
+    renderer: Rc<Box<dyn TextRenderer>>,
     selection: Rc<Cell<Option<Selection>>>,
+    bg_alpha: Rc<Cell<f64>>,
+    frames: Rc<Cell<u64>>,
     exited: Rc<Cell<bool>>,
 }
 
@@ -48,6 +51,8 @@ impl TerminalView {
             &font.borrow().clone(),
         )));
         let selection: Rc<Cell<Option<Selection>>> = Rc::new(Cell::new(None));
+        let bg_alpha = Rc::new(Cell::new(1.0));
+        let frames = Rc::new(Cell::new(0));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
         let last_size = Rc::new(Cell::new((0usize, 0usize)));
@@ -59,10 +64,13 @@ impl TerminalView {
             let engine = engine.clone();
             let session = session.clone();
             let selection = selection.clone();
+            let bg_alpha = bg_alpha.clone();
+            let frames = frames.clone();
             let metrics = metrics.clone();
             let last_modes = last_modes.clone();
             let last_size = last_size.clone();
             area.set_draw_func(move |_, cr, w, h| {
+                frames.set(frames.get() + 1);
                 let font = font.borrow().clone();
                 let m = renderer.metrics(cr, &font);
                 metrics.set(m);
@@ -78,7 +86,7 @@ impl TerminalView {
                 let opts = PaintOpts {
                     font,
                     selection: selection.get(),
-                    bg_alpha: 1.0,
+                    bg_alpha: bg_alpha.get(),
                 };
                 renderer.paint(cr, &snapshot, &theme.borrow(), &opts);
             });
@@ -382,7 +390,10 @@ impl TerminalView {
             session,
             theme,
             font,
+            renderer,
             selection,
+            bg_alpha,
+            frames,
             exited,
         }
     }
@@ -403,6 +414,54 @@ impl TerminalView {
     pub fn set_font(&self, font: FontSpec) {
         *self.font.borrow_mut() = font;
         self.area.queue_draw();
+    }
+
+    /// Alpha del fondo (1.0 opaco, 0.0 transparente). El texto y el cursor
+    /// siguen opacos; FR-9.1.
+    pub fn set_bg_alpha(&self, alpha: f64) {
+        self.bg_alpha.set(alpha.clamp(0.0, 1.0));
+        self.area.queue_draw();
+    }
+
+    pub fn bg_alpha(&self) -> f64 {
+        self.bg_alpha.get()
+    }
+
+    pub fn font_size(&self) -> f64 {
+        self.font.borrow().size
+    }
+
+    /// Fotogramas pintados; se usa para medir el costo de la transparencia.
+    pub fn frame_count(&self) -> u64 {
+        self.frames.get()
+    }
+
+    /// Pinta `iterations` cuadros fuera de pantalla y devuelve el tiempo medio.
+    /// Mide el costo del renderer con el alpha actual (FR-9.4).
+    pub fn render_benchmark(&self, width: i32, height: i32, iterations: u32) -> Duration {
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, width, height)
+            .expect("superficie de benchmark");
+        let ctx = Context::new(&surface).expect("contexto de benchmark");
+        let snapshot = self.engine.borrow_mut().snapshot();
+        let opts = PaintOpts {
+            font: self.font.borrow().clone(),
+            selection: None,
+            bg_alpha: self.bg_alpha.get(),
+        };
+        let start = Instant::now();
+        for _ in 0..iterations.max(1) {
+            self.renderer
+                .paint(&ctx, &snapshot, &self.theme.borrow(), &opts);
+        }
+        start.elapsed() / iterations.max(1)
+    }
+
+    pub fn theme_fg(&self) -> termust_core::terminal::Rgb {
+        self.theme.borrow().fg
+    }
+
+    pub fn theme_bg(&self) -> termust_core::terminal::Rgb {
+        self.theme.borrow().bg
     }
 
     pub fn exited(&self) -> bool {

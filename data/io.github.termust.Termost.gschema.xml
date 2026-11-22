@@ -6,5 +6,32 @@
       <summary>Restaurar la sesión al iniciar</summary>
       <description>Si está activo, Termust restaura pestañas, paneles y directorios de la última sesión.</description>
     </key>
+    <key name="theme" type="s">
+      <default>'auto'</default>
+      <summary>Tema de terminal</summary>
+      <description>Id de tema o «auto» para seguir el modo oscuro/claro del sistema.</description>
+    </key>
+    <key name="theme-dark" type="s">
+      <default>'termust-dark'</default>
+      <summary>Tema para modo oscuro</summary>
+      <description>Tema usado cuando «theme» es «auto» y el sistema está en modo oscuro.</description>
+    </key>
+    <key name="theme-light" type="s">
+      <default>'catppuccin-latte'</default>
+      <summary>Tema para modo claro</summary>
+      <description>Tema usado cuando «theme» es «auto» y el sistema está en modo claro.</description>
+    </key>
+    <key name="opacity" type="i">
+      <default>0</default>
+      <range min="0" max="100"/>
+      <summary>Transparencia del fondo</summary>
+      <description>Porcentaje de transparencia del fondo (0 = opaco). El texto y el cursor no se atenúan.</description>
+    </key>
+    <key name="font-scale" type="d">
+      <default>1.0</default>
+      <range min="0.5" max="2.0"/>
+      <summary>Escala de fuente</summary>
+      <description>Multiplicador del tamaño de fuente del terminal (zoom).</description>
+    </key>
   </schema>
 </schemalist>
