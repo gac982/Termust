@@ -27,6 +27,10 @@ pub enum Language {
     Css,
     Astro,
     Vue,
+    Json,
+    Toml,
+    Yaml,
+    Markdown,
     Plain,
 }
 
@@ -49,6 +53,10 @@ impl Language {
             "css" => Self::Css,
             "astro" => Self::Astro,
             "vue" => Self::Vue,
+            "json" => Self::Json,
+            "toml" => Self::Toml,
+            "yaml" | "yml" => Self::Yaml,
+            "md" | "markdown" => Self::Markdown,
             _ => Self::Plain,
         }
     }
@@ -65,6 +73,10 @@ impl Language {
             Self::Css => "CSS",
             Self::Astro => "Astro",
             Self::Vue => "Vue (HTML + inyección)",
+            Self::Json => "JSON",
+            Self::Toml => "TOML",
+            Self::Yaml => "YAML",
+            Self::Markdown => "Markdown",
             Self::Plain => "Texto plano",
         }
     }
@@ -80,6 +92,10 @@ impl Language {
             Self::Html | Self::Vue => tree_sitter_html::LANGUAGE.into(),
             Self::Css => tree_sitter_css::LANGUAGE.into(),
             Self::Astro => tree_sitter_astro_next::LANGUAGE.into(),
+            Self::Json => tree_sitter_json::LANGUAGE.into(),
+            Self::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
+            Self::Yaml => tree_sitter_yaml::LANGUAGE.into(),
+            Self::Markdown => tree_sitter_md::LANGUAGE.into(),
             Self::Plain => return None,
         })
     }
@@ -94,6 +110,10 @@ impl Language {
             Self::Html | Self::Vue => tree_sitter_html::HIGHLIGHTS_QUERY,
             Self::Css => tree_sitter_css::HIGHLIGHTS_QUERY,
             Self::Astro => tree_sitter_astro_next::HIGHLIGHTS_QUERY,
+            Self::Json => tree_sitter_json::HIGHLIGHTS_QUERY,
+            Self::Toml => tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+            Self::Yaml => tree_sitter_yaml::HIGHLIGHTS_QUERY,
+            Self::Markdown => tree_sitter_md::HIGHLIGHT_QUERY_BLOCK,
             Self::Plain => return None,
         })
     }
@@ -323,6 +343,18 @@ impl Parsed {
         }
         if self.language == Language::Vue {
             self.highlight_vue_injections(start, end, spans);
+        }
+        if self.language == Language::Markdown {
+            run_query(
+                &tree_sitter_md::INLINE_LANGUAGE.into(),
+                tree_sitter_md::HIGHLIGHT_QUERY_INLINE,
+                &self.tree,
+                &self.content,
+                start,
+                end,
+                0,
+                spans,
+            );
         }
     }
 
@@ -628,6 +660,10 @@ mod tests {
         assert_eq!(Language::detect(Path::new("a.css"), ""), Language::Css);
         assert_eq!(Language::detect(Path::new("a.astro"), ""), Language::Astro);
         assert_eq!(Language::detect(Path::new("a.vue"), ""), Language::Vue);
+        assert_eq!(Language::detect(Path::new("a.json"), ""), Language::Json);
+        assert_eq!(Language::detect(Path::new("a.toml"), ""), Language::Toml);
+        assert_eq!(Language::detect(Path::new("a.yaml"), ""), Language::Yaml);
+        assert_eq!(Language::detect(Path::new("a.md"), ""), Language::Markdown);
         assert_eq!(Language::detect(Path::new("a.bin"), "x"), Language::Plain);
     }
 
@@ -722,6 +758,23 @@ mod tests {
             outline.iter().any(|item| item.name == "beta"),
             "{outline:?}"
         );
+    }
+
+    #[test]
+    fn viewer_highlights_config_and_markup_formats() {
+        for (name, content) in [
+            ("a.json", "{\"a\": 1, \"b\": true}\n"),
+            ("a.toml", "[section]\nname = \"x\"\n"),
+            ("a.yaml", "name: x\nvalue: 1\n"),
+            ("a.md", "# Title\n\n**bold** and `code`\n"),
+        ] {
+            let document = Document::from_text(Path::new(name), content);
+            let parsed = document.parse().expect("parse");
+            assert!(
+                !parsed.highlight_lines(0, 10).is_empty(),
+                "sin resaltado para {name}"
+            );
+        }
     }
 
     #[test]

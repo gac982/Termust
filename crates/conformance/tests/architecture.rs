@@ -182,6 +182,33 @@ fn only_host_exec_spawns_flatpak() {
     }
 }
 
+#[test]
+fn viewer_and_syntax_have_no_write_path() {
+    let root = repo_root();
+    let mut files = walk(&root.join("crates/syntax/src"));
+    files.push(root.join("app/src/viewer.rs"));
+    const FORBIDDEN: &[&str] = &[
+        "fs::write",
+        "File::create",
+        "OpenOptions",
+        "fs::remove_file",
+        "fs::rename",
+        "set_len(",
+        ".write(true)",
+    ];
+    for entry in files {
+        let text = std::fs::read_to_string(&entry).unwrap_or_default();
+        let production = text.split("#[cfg(test)]").next().unwrap_or("");
+        for token in FORBIDDEN {
+            assert!(
+                !production.contains(token),
+                "{} contiene {token}; el visor es solo lectura",
+                entry.display()
+            );
+        }
+    }
+}
+
 fn walk(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];

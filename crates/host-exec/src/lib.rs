@@ -500,3 +500,144 @@ mod tests {
         );
     }
 }
+
+/// Editores externos permitidos por FR-5.6, en orden de preferencia.
+pub const EDITOR_ALLOWLIST: &[&str] = &["code", "codium", "zed", "gnome-text-editor"];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Editor {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// Elige el primer editor permitido de una lista ya descubierta.
+pub fn choose_editor(candidates: &[(&str, Option<PathBuf>)]) -> Option<Editor> {
+    for allowed in EDITOR_ALLOWLIST {
+        if let Some((_, Some(path))) = candidates
+            .iter()
+            .find(|(name, path)| *name == *allowed && path.is_some())
+        {
+            return Some(Editor {
+                name: (*allowed).to_string(),
+                path: path.clone(),
+            });
+        }
+    }
+    None
+}
+
+/// Construye el argv para abrir `file` en `editor`. La ruta se canonicaliza y
+/// nunca se interpola en un shell.
+pub fn editor_argv(
+    editor: &Editor,
+    file: &Path,
+    flatpak: bool,
+) -> Result<Vec<OsString>, HostError> {
+    if !EDITOR_ALLOWLIST.contains(&editor.name.as_str())
+        || !editor.path.is_absolute()
+        || (!flatpak && !editor.path.is_file())
+    {
+        return Err(HostError::Io("editor no permitido".into()));
+    }
+    let file = fs::canonicalize(file).map_err(|error| HostError::Io(error.to_string()))?;
+    let mut argv = Vec::new();
+    if flatpak {
+        argv.push(OsString::from("flatpak-spawn"));
+        argv.push(OsString::from("--host"));
+    }
+    argv.push(editor.path.clone().into_os_string());
+    argv.push(file.into_os_string());
+    Ok(argv)
+}
+
+/// Busca un editor en el host; cachea el resultado por proceso.
+pub fn find_editor() -> Option<Editor> {
+    static CACHE: OnceLock<Option<Editor>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let flatpak = is_flatpak();
+            let mut candidates = Vec::new();
+            for name in EDITOR_ALLOWLIST {
+                let path = if flatpak {
+                    std::process::Command::new("flatpak-spawn")
+                        .args(["--host", "sh", "-lc", &format!("command -v {name}")])
+                        .output()
+                        .ok()
+                        .filter(|output| output.status.success())
+                        .and_then(|output| {
+                            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                            path.starts_with('/').then(|| PathBuf::from(path))
+                        })
+                } else {
+                    find_in_path(name)
+                };
+                candidates.push((*name, path));
+            }
+            choose_editor(&candidates)
+        })
+        .clone()
+}
+
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod editor_tests {
+    use super::*;
+
+    #[test]
+    fn viewer_open_in_editor_allowlist() {
+        let candidates = [
+            ("nano", Some(PathBuf::from("/usr/bin/nano"))),
+            (
+                "gnome-text-editor",
+                Some(PathBuf::from("/usr/bin/gnome-text-editor")),
+            ),
+            ("code", Some(PathBuf::from("/usr/bin/code"))),
+            ("codium", Some(PathBuf::from("/usr/bin/codium"))),
+        ];
+        let editor = choose_editor(&candidates).expect("editor permitido");
+        assert_eq!(editor.name, "code");
+        assert_eq!(editor.path, PathBuf::from("/usr/bin/code"));
+        assert!(choose_editor(&[("nano", Some(PathBuf::from("/usr/bin/nano")))]).is_none());
+
+        let dir = std::env::temp_dir().join(format!("termust-editor-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a.rs");
+        fs::write(&file, b"fn main() {}").unwrap();
+        let argv = editor_argv(&editor, &file, false).expect("argv");
+        assert_eq!(argv.len(), 2);
+        assert_eq!(argv[0], OsString::from("/usr/bin/code"));
+        assert_eq!(argv[1], fs::canonicalize(&file).unwrap().into_os_string());
+
+        let argv = editor_argv(&editor, &file, true).expect("argv flatpak");
+        assert_eq!(argv[0], OsString::from("flatpak-spawn"));
+        assert_eq!(argv[1], OsString::from("--host"));
+        assert_eq!(argv[2], OsString::from("/usr/bin/code"));
+        assert_eq!(argv.len(), 4);
+
+        let evil = Editor {
+            name: "nano".into(),
+            path: PathBuf::from("/usr/bin/nano"),
+        };
+        assert!(editor_argv(&evil, &file, false).is_err());
+
+        // En Flatpak el binario vive en el host y no se puede stat desde el sandbox.
+        let host_only = Editor {
+            name: "code".into(),
+            path: PathBuf::from("/host/only/code"),
+        };
+        assert!(editor_argv(&host_only, &file, false).is_err());
+        assert!(editor_argv(&host_only, &file, true).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

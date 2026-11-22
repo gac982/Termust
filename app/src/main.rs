@@ -4,6 +4,7 @@ mod history;
 mod preferences;
 mod tab_sidebar;
 mod tabs;
+mod viewer;
 
 use appearance::{Appearance, AUTO_THEME};
 use gtk::gdk;
@@ -25,6 +26,7 @@ use termust_core::keymap::{
 };
 use termust_core::tabs::{Direction, Preset, SplitOrientation};
 use termust_pty_unix::UnixPtySpawner;
+use viewer::{Viewer, ViewerColors};
 
 fn main() -> glib::ExitCode {
     // ADR-003: Cairo es el renderer de v1. GSK con GL agrega ~22 MB PSS a una
@@ -279,7 +281,25 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let toast_overlay = libadwaita::ToastOverlay::new();
     toast_overlay.set_child(Some(manager.borrow().tab_view()));
 
+    let viewer = Viewer::new(
+        ViewerColors::from_theme(&appearance.render_theme(None)),
+        toast_overlay.clone(),
+    );
+    {
+        let manager = Rc::downgrade(&manager);
+        viewer.set_on_close(move || {
+            if let Some(manager) = manager.upgrade() {
+                if let Ok(manager) = manager.try_borrow() {
+                    manager.focus_active();
+                }
+            }
+        });
+    }
     let file_panel = files::FilePanel::new(&home, toast_overlay.clone());
+    {
+        let viewer = viewer.clone();
+        file_panel.set_open_handler(move |path| viewer.open_file(&path));
+    }
     if files_visible {
         file_panel.activate();
     }
@@ -301,7 +321,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     outer_split.set_max_sidebar_width(320.0);
     outer_split.set_sidebar_width_fraction(0.18);
     outer_split.set_show_sidebar(vertical_visible);
-    toolbar.set_content(Some(&outer_split));
+
+    let overlay = gtk::Overlay::new();
+    overlay.set_child(Some(&outer_split));
+    viewer.widget().set_halign(gtk::Align::Fill);
+    viewer.widget().set_valign(gtk::Align::Fill);
+    overlay.add_overlay(viewer.widget());
+    toolbar.set_content(Some(&overlay));
 
     {
         let split = files_split.clone();
@@ -491,9 +517,27 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let key_window = window.clone();
         let files_button = files_button.clone();
         let tabs_button = tabs_button.clone();
+        let viewer = viewer.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
+            if viewer.is_open() {
+                if keyval == gdk::Key::Escape {
+                    viewer.close();
+                    return glib::Propagation::Stop;
+                }
+                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+                let search = ctrl
+                    && keyval
+                        .to_unicode()
+                        .map(|ch| ch.eq_ignore_ascii_case(&'f'))
+                        .unwrap_or(false);
+                if search {
+                    viewer.toggle_search();
+                    return glib::Propagation::Stop;
+                }
+                return glib::Propagation::Proceed;
+            }
             if history.is_open() {
                 return glib::Propagation::Proceed;
             }
@@ -1513,6 +1557,123 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_VIEWER_TEST").is_some() {
+        let viewer = viewer.clone();
+        let file_panel = file_panel.clone();
+        let files_button = files_button.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            let root = std::env::temp_dir().join(format!("termust-viewer-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let rust = "struct App {\n    name: String,\n}\n\nimpl App {\n    fn new() -> Self {\n        Self { name: String::new() }\n    }\n}\n\nfn main() {\n    let app = App::new();\n    println!(\"{}\", app.name);\n}\n";
+            std::fs::write(root.join("main.rs"), rust).unwrap();
+            std::fs::write(
+                root.join("widget.vue"),
+                "<template><div>{{ msg }}</div></template>\n<script>\nconst msg = 1;\nfunction hi() { return msg; }\n</script>\n",
+            )
+            .unwrap();
+            std::fs::write(root.join("data.bin"), [0u8, 159, 146, 150, 0, 1]).unwrap();
+            std::fs::write(root.join("large.txt"), vec![b'a'; 2 * 1024 * 1024 + 10]).unwrap();
+            std::fs::write(root.join("latin1.txt"), b"hola \xff mundo\n").unwrap();
+            let hash_before = file_hash(&root.join("main.rs"));
+
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-viewer-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            files_button.set_active(true);
+            file_panel.set_root(&root);
+            check(
+                "el panel abre el archivo en el visor",
+                file_panel.activate_root("main.rs") && viewer.is_open(),
+            );
+            check("muestra texto", viewer.is_showing_text());
+            check(
+                "lee el contenido",
+                viewer.buffer_text().contains("struct App") && viewer.line_count() > 5,
+            );
+            check("lenguaje detectado", viewer.language_label() == "Rust");
+            check(
+                "ruta abierta",
+                viewer.path().as_deref() == Some(root.join("main.rs").as_path()),
+            );
+            check("solo lectura", !viewer.is_editable());
+            check("números de línea", viewer.line_count() > 0);
+
+            let viewer2 = viewer.clone();
+            let root2 = root.clone();
+            let app2 = app.clone();
+            let mut failed2 = failed;
+            glib::timeout_add_local_once(Duration::from_millis(800), move || {
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-viewer-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed2 |= !ok;
+                };
+                check("resaltado del viewport", viewer2.highlight_count() > 0);
+                check("folds calculados", viewer2.fold_count() > 0);
+                check("outline calculado", viewer2.outline_count() > 0);
+                let fold_line = viewer2.first_fold_line().unwrap_or(0);
+                viewer2.toggle_fold_at_line(fold_line);
+                check("plegar bloque", viewer2.folded_count() == 1);
+                viewer2.toggle_fold_at_line(fold_line);
+                check("desplegar bloque", viewer2.folded_count() == 0);
+                check("búsqueda", viewer2.find("println"));
+                check(
+                    "búsqueda selecciona",
+                    viewer2.selection_text().as_deref() == Some("println"),
+                );
+                let _buffer_changed = viewer2.try_insert_for_test("HACK");
+                check(
+                    "viewer_never_writes_file",
+                    file_hash(&root2.join("main.rs")) == hash_before,
+                );
+
+                viewer2.open_file(&root2.join("data.bin"));
+                check("viewer_binary_status_page", viewer2.is_showing_status());
+                viewer2.open_file(&root2.join("large.txt"));
+                check("archivo grande avisa", viewer2.banner_visible());
+                viewer2.open_file(&root2.join("latin1.txt"));
+                check("no UTF-8 avisa", viewer2.banner_visible());
+                viewer2.open_file(&root2.join("widget.vue"));
+                check("Vue detectado", viewer2.language_label().contains("Vue"));
+
+                let viewer3 = viewer2.clone();
+                let root3 = root2.clone();
+                let app3 = app2.clone();
+                let mut failed3 = failed2;
+                glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                    let mut check = |label: &str, ok: bool| {
+                        eprintln!(
+                            "termust-viewer-test: {label} {}",
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        failed3 |= !ok;
+                    };
+                    check("Vue resaltado por inyección", viewer3.highlight_count() > 0);
+                    viewer3.close();
+                    check("cierra el visor", !viewer3.is_open());
+                    let _ = std::fs::remove_dir_all(&root3);
+                    eprintln!(
+                        "termust-viewer-test: {}",
+                        if failed3 { "FAIL" } else { "ok" }
+                    );
+                    if failed3 {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
     let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
@@ -1820,4 +1981,12 @@ fn rss_kb() -> u64 {
             })
         })
         .unwrap_or(0)
+}
+
+fn file_hash(path: &std::path::Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let bytes = std::fs::read(path).unwrap_or_default();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }

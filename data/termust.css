@@ -79,3 +79,21 @@ window.termust-transparent paned > separator {
 .termust-files label.termust-dir {
   font-weight: 500;
 }
+
+/* Visor de solo lectura. */
+.termust-viewer {
+  background-color: @window_bg_color;
+}
+
+.termust-viewer .termust-gutter {
+  background-color: @window_bg_color;
+  border-right: 1px solid alpha(currentColor, 0.10);
+}
+
+.termust-viewer textview {
+  background-color: @view_bg_color;
+}
+
+.termust-viewer textview text {
+  font-family: monospace;
+}
