@@ -114,18 +114,12 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
     let shift = ev.mods.shift;
     let alt = ev.mods.alt;
 
-    if ctrl && alt && !shift {
+    if ctrl && shift {
         match ev.key {
             Key::Left => return Some(Action::FocusPane(Direction::Left)),
             Key::Right => return Some(Action::FocusPane(Direction::Right)),
             Key::Up => return Some(Action::FocusPane(Direction::Up)),
             Key::Down => return Some(Action::FocusPane(Direction::Down)),
-            _ => {}
-        }
-    }
-
-    if ctrl && shift {
-        match ev.key {
             Key::Char(c) if c.eq_ignore_ascii_case(&'t') => return Some(Action::NewTab),
             Key::Char(c) if c.eq_ignore_ascii_case(&'w') && cfg.close_tab => {
                 return Some(Action::CloseTab)
@@ -319,24 +313,21 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_alt_arrows_move_focus() {
-        let mods = Mods {
-            ctrl: true,
-            alt: true,
-            shift: false,
-            logo: false,
-        };
+    fn ctrl_shift_arrows_move_focus() {
         assert_eq!(
-            press(Key::Left, mods),
+            press(Key::Left, Mods::ctrl_shift()),
             Some(Action::FocusPane(Direction::Left))
         );
         assert_eq!(
-            press(Key::Right, mods),
+            press(Key::Right, Mods::ctrl_shift()),
             Some(Action::FocusPane(Direction::Right))
         );
-        assert_eq!(press(Key::Up, mods), Some(Action::FocusPane(Direction::Up)));
         assert_eq!(
-            press(Key::Down, mods),
+            press(Key::Up, Mods::ctrl_shift()),
+            Some(Action::FocusPane(Direction::Up))
+        );
+        assert_eq!(
+            press(Key::Down, Mods::ctrl_shift()),
             Some(Action::FocusPane(Direction::Down))
         );
     }

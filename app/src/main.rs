@@ -13,6 +13,7 @@ use tabs::TabManager;
 use termust_core::keymap::{
     resolve_shortcut, Action, Focus, Key as CoreKey, KeyConfig, KeyEvent, Mods,
 };
+use termust_core::tabs::{Direction, SplitOrientation};
 use termust_pty_unix::UnixPtySpawner;
 
 fn main() -> glib::ExitCode {
@@ -30,11 +31,20 @@ fn main() -> glib::ExitCode {
     let app = Application::builder()
         .application_id(termust_core::APP_ID)
         .build();
-    app.connect_activate(build_ui);
+    let slot: Rc<RefCell<Option<ApplicationWindow>>> = Rc::new(RefCell::new(None));
+    let activate_slot = slot.clone();
+    app.connect_activate(move |app| {
+        if let Some(window) = activate_slot.borrow().as_ref() {
+            window.present();
+            return;
+        }
+        let window = build_ui(app);
+        *activate_slot.borrow_mut() = Some(window);
+    });
     app.run()
 }
 
-fn build_ui(app: &Application) {
+fn build_ui(app: &Application) -> ApplicationWindow {
     let header = HeaderBar::new();
     let toolbar = ToolbarView::new();
     toolbar.add_top_bar(&header);
@@ -52,7 +62,7 @@ fn build_ui(app: &Application) {
         Err(e) => {
             show_error(&toolbar, &e.to_string());
             window.present();
-            return;
+            return window;
         }
     };
     let shell = termust_host_exec::default_shell();
@@ -61,7 +71,7 @@ fn build_ui(app: &Application) {
         Err(e) => {
             show_error(&toolbar, &e.to_string());
             window.present();
-            return;
+            return window;
         }
     };
     let home = std::env::var_os("HOME")
@@ -73,7 +83,7 @@ fn build_ui(app: &Application) {
         Err(e) => {
             show_error(&toolbar, &e);
             window.present();
-            return;
+            return window;
         }
     };
     TabManager::connect(&manager);
@@ -104,12 +114,15 @@ fn build_ui(app: &Application) {
     tab_bar.set_hexpand(true);
     tab_bar.set_halign(gtk::Align::Fill);
     header.set_title_widget(Some(&tab_bar));
-    toolbar.set_content(Some(manager.borrow().tab_view()));
+    let toast_overlay = libadwaita::ToastOverlay::new();
+    toast_overlay.set_child(Some(manager.borrow().tab_view()));
+    toolbar.set_content(Some(&toast_overlay));
     manager.borrow().focus_active();
 
     {
         let manager = manager.clone();
         let home = home.clone();
+        let toast_overlay = toast_overlay.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
@@ -149,6 +162,14 @@ fn build_ui(app: &Application) {
                 Action::ActivateLast => mgr.select_last(),
                 Action::MoveTabLeft => mgr.move_active(-1),
                 Action::MoveTabRight => mgr.move_active(1),
+                Action::SplitPane(orientation) => {
+                    if let Err(e) = mgr.split_active(orientation) {
+                        toast_overlay.add_toast(libadwaita::Toast::new(&e));
+                    }
+                }
+                Action::FocusPane(direction) => {
+                    mgr.focus_direction(direction);
+                }
                 _ => {}
             }
             glib::Propagation::Stop
@@ -176,7 +197,58 @@ fn build_ui(app: &Application) {
         });
     }
 
+    if std::env::var_os("TERMUST_PANES_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(700), move || {
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-panes-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            {
+                let mut mgr = manager.borrow_mut();
+                check("inicio 1 panel", mgr.active_pane_count() == 1);
+                check(
+                    "split horizontal",
+                    mgr.split_active(SplitOrientation::Horizontal).is_ok(),
+                );
+                check("2 paneles", mgr.active_pane_count() == 2);
+                check("foco izquierda", mgr.focus_direction(Direction::Left));
+                check("foco derecha", mgr.focus_direction(Direction::Right));
+                check(
+                    "split vertical",
+                    mgr.split_active(SplitOrientation::Vertical).is_ok(),
+                );
+                check("3 paneles", mgr.active_pane_count() == 3);
+                check(
+                    "split horizontal 2",
+                    mgr.split_active(SplitOrientation::Horizontal).is_ok(),
+                );
+                check("4 paneles", mgr.active_pane_count() == 4);
+                check(
+                    "quinto panel rechazado",
+                    mgr.split_active(SplitOrientation::Vertical).is_err(),
+                );
+                mgr.close_active();
+                check("cierre 4->3", mgr.active_pane_count() == 3);
+                mgr.close_active();
+                check("cierre 3->2", mgr.active_pane_count() == 2);
+                mgr.close_active();
+                check("cierre 2->1", mgr.active_pane_count() == 1);
+            }
+            if failed {
+                std::process::exit(1);
+            }
+            app.quit();
+        });
+    }
+
     window.present();
+    window
 }
 
 fn initial_tabs() -> usize {
