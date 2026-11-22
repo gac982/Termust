@@ -14,7 +14,7 @@ use termust_fs_local::{self as fs, EntryKind, FileEntry};
 
 /// Acciones expuestas por fila. No hay ninguna destructiva (FR-4.6).
 #[cfg_attr(not(test), allow(dead_code))]
-pub const FILE_ACTIONS: &[&str] = &["navigate", "open-external", "copy-path"];
+pub const FILE_ACTIONS: &[&str] = &["navigate", "open-viewer", "open-external", "copy-path"];
 
 const ATTR_PATH: &str = "termust::path";
 const ATTR_ICON: &str = "termust::icon";
@@ -128,6 +128,8 @@ fn store_for(entries: &[FileEntry]) -> gio::ListStore {
 }
 
 /// Panel lateral con árbol lazy y virtualizado.
+pub type OpenHandler = Rc<dyn Fn(PathBuf)>;
+
 pub struct FilePanel {
     root: gtk::Box,
     list: gtk::ListView,
@@ -151,6 +153,7 @@ pub struct FilePanel {
     refresh_pending: Cell<bool>,
     search_source: Cell<Option<glib::SourceId>>,
     follow_action: RefCell<Option<gio::SimpleAction>>,
+    open_handler: RefCell<Option<OpenHandler>>,
     manual_browse: Cell<bool>,
 }
 
@@ -365,6 +368,7 @@ impl FilePanel {
                 refresh_pending: Cell::new(false),
                 search_source: Cell::new(None),
                 follow_action: RefCell::new(None),
+                open_handler: RefCell::new(None),
                 manual_browse: Cell::new(false),
             };
             panel.update_path_label(home);
@@ -420,6 +424,20 @@ impl FilePanel {
             });
         }
         group.add_action(&navigate);
+
+        let open_viewer = gio::SimpleAction::new("open-viewer", Some(glib::VariantTy::STRING));
+        {
+            let weak = weak.clone();
+            open_viewer.connect_activate(move |_, param| {
+                let Some(path) = param.and_then(|value| value.str()).and_then(decode_path) else {
+                    return;
+                };
+                if let Some(panel) = weak.upgrade() {
+                    panel.open_file(&path);
+                }
+            });
+        }
+        group.add_action(&open_viewer);
 
         let open = gio::SimpleAction::new("open-external", Some(glib::VariantTy::STRING));
         {
@@ -780,6 +798,18 @@ impl FilePanel {
         self.reload();
     }
 
+    pub fn set_open_handler(&self, handler: impl Fn(PathBuf) + 'static) {
+        *self.open_handler.borrow_mut() = Some(Rc::new(handler));
+    }
+
+    fn open_file(&self, path: &Path) {
+        if let Some(handler) = self.open_handler.borrow().as_ref() {
+            handler(path.to_path_buf());
+        } else {
+            self.launch(path);
+        }
+    }
+
     pub fn set_search(&self, text: &str) {
         self.search.set_text(text);
         self.apply_filter();
@@ -821,6 +851,8 @@ impl FilePanel {
             if info.file_type() == gio::FileType::Directory {
                 self.note_manual_navigation();
                 self.set_root(&path);
+            } else {
+                self.open_file(&path);
             }
         }
         true
@@ -868,7 +900,7 @@ impl FilePanel {
             self.note_manual_navigation();
             self.set_root(&path);
         } else {
-            self.launch(&path);
+            self.open_file(&path);
         }
     }
 
@@ -911,6 +943,12 @@ impl FilePanel {
             );
             menu.append_item(&open);
         } else {
+            let viewer = gio::MenuItem::new(Some("Abrir en visor"), None);
+            viewer.set_action_and_target_value(
+                Some("file.open-viewer"),
+                Some(&encode_path(&path).to_variant()),
+            );
+            menu.append_item(&viewer);
             let open = gio::MenuItem::new(Some("Abrir con aplicación externa"), None);
             open.set_action_and_target_value(
                 Some("file.open-external"),
