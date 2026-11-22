@@ -205,7 +205,9 @@ impl TabManager {
                     let model = self.model.clone();
                     let suspend = self.suspend_ratios.clone();
                     paned.connect_position_notify(move |paned| {
-                        if suspend.get() {
+                        // Paneles viejos (aún referenciados por posiciones
+                        // pendientes) no deben tocar el modelo.
+                        if suspend.get() || paned.parent().is_none() {
                             return;
                         }
                         let extent = match paned.orientation() {
