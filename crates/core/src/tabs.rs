@@ -747,6 +747,17 @@ impl TabModel {
         }
     }
 
+    /// Fija el tema de la pestaña (`None` = seguir el tema global).
+    pub fn set_theme_id(&mut self, id: TabId, theme_id: Option<String>) -> bool {
+        match self.tabs.iter_mut().find(|tab| tab.id == id) {
+            Some(tab) => {
+                tab.theme_id = theme_id;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn set_cwd(&mut self, id: TabId, cwd: impl Into<PathBuf>) -> bool {
         match self.get_mut(id) {
             Some(tab) => {

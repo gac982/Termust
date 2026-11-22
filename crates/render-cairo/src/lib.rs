@@ -3,7 +3,7 @@
 use cairo::Context;
 use pango::{FontDescription, Layout};
 use pangocairo::functions::{create_layout, show_layout};
-use termust_core::terminal::{Cell, Rgb, Snapshot};
+use termust_core::terminal::{Cell, Color, Rgb, Snapshot};
 use termust_text_render::{resolve_color, CellMetrics, FontSpec, PaintOpts, TextRenderer, Theme};
 
 pub struct CairoRenderer;
@@ -83,6 +83,10 @@ impl TextRenderer for CairoRenderer {
                     .map(|s| s.contains(row, col))
                     .unwrap_or(false);
                 let (fg, bg) = colors(cell, theme, selected);
+                // Con fondo translúcido, las celdas sin color propio dejan ver
+                // el fondo base; los colores explícitos y la selección siguen
+                // opacos (FR-9.1).
+                let paint_bg = paints_background(cell, selected);
                 let x = col as f64 * cw;
                 let y = row as f64 * ch;
 
@@ -106,6 +110,7 @@ impl TextRenderer for CairoRenderer {
                     let (nfg, nbg) = colors(next, theme, next_selected);
                     if nfg != fg
                         || nbg != bg
+                        || paints_background(next, next_selected) != paint_bg
                         || next.attrs.bold != cell.attrs.bold
                         || next.attrs.italic != cell.attrs.italic
                         || next.attrs.underline != cell.attrs.underline
@@ -120,13 +125,15 @@ impl TextRenderer for CairoRenderer {
                 }
 
                 // El fondo cubre todo el tramo, no solo la primera celda.
-                ctx.set_source_rgb(
-                    bg.r as f64 / 255.0,
-                    bg.g as f64 / 255.0,
-                    bg.b as f64 / 255.0,
-                );
-                ctx.rectangle(x, y, (end - col) as f64 * cw, ch);
-                ctx.fill().ok();
+                if paint_bg {
+                    ctx.set_source_rgb(
+                        bg.r as f64 / 255.0,
+                        bg.g as f64 / 255.0,
+                        bg.b as f64 / 255.0,
+                    );
+                    ctx.rectangle(x, y, (end - col) as f64 * cw, ch);
+                    ctx.fill().ok();
+                }
 
                 if !text.is_empty() {
                     layout.set_text(&text);
@@ -158,16 +165,22 @@ impl TextRenderer for CairoRenderer {
         if snapshot.cursor.visible {
             let x = snapshot.cursor.col as f64 * cw;
             let y = snapshot.cursor.row as f64 * ch;
+            // Con el fondo translúcido el cursor debe seguir opaco (FR-9.1).
+            let alpha = if opts.bg_alpha < 1.0 { 1.0 } else { 0.75 };
             ctx.set_source_rgba(
                 theme.cursor.r as f64 / 255.0,
                 theme.cursor.g as f64 / 255.0,
                 theme.cursor.b as f64 / 255.0,
-                0.75,
+                alpha,
             );
             ctx.rectangle(x, y, cw, ch);
             ctx.fill().ok();
         }
     }
+}
+
+fn paints_background(cell: &Cell, selected: bool) -> bool {
+    selected || cell.attrs.inverse || !matches!(cell.bg, Color::DefaultBg)
 }
 
 fn colors(cell: &Cell, theme: &Theme, selected: bool) -> (Rgb, Rgb) {
@@ -291,6 +304,45 @@ mod tests {
         let ml = r.metrics(&ctx, &large);
         assert!(ml.width > ms.width);
         assert!(ml.height > ms.height);
+    }
+
+    #[test]
+    fn opacity_only_background() {
+        let (mut s, c) = surface(40, 40);
+        let mut snap = blank_snapshot(5, 2);
+        snap.cursor = Cursor {
+            col: 0,
+            row: 0,
+            visible: true,
+        };
+        let theme = Theme::default();
+        let opts = PaintOpts {
+            bg_alpha: 0.5,
+            ..PaintOpts::default()
+        };
+        CairoRenderer::new().paint(&c, &snap, &theme, &opts);
+        drop(c);
+        // Lejos del cursor y de las celdas: solo el fondo base, translúcido.
+        let (_, _, _, bg_alpha) = pixel(&mut s, 35, 35);
+        assert!(bg_alpha > 0 && bg_alpha < 255, "alpha {bg_alpha}");
+        // El cursor se mantiene opaco.
+        let (_, _, _, cursor_alpha) = pixel(&mut s, 2, 2);
+        assert_eq!(cursor_alpha, 255);
+    }
+
+    #[test]
+    fn cell_backgrounds_stay_opaque_with_transparency() {
+        let (mut s, c) = surface(40, 40);
+        let mut snap = blank_snapshot(1, 1);
+        snap.cells[0].bg = Color::Indexed(1);
+        let opts = PaintOpts {
+            bg_alpha: 0.5,
+            ..PaintOpts::default()
+        };
+        CairoRenderer::new().paint(&c, &snap, &Theme::default(), &opts);
+        drop(c);
+        let (_, _, _, alpha) = pixel(&mut s, 3, 3);
+        assert_eq!(alpha, 255);
     }
 
     #[test]

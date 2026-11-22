@@ -77,6 +77,7 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    Preferences,
     Fullscreen,
     Shortcuts,
     RenameTab,
@@ -144,6 +145,7 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
             Key::PageUp if cfg.move_tabs => return Some(Action::MoveTabLeft),
             Key::PageDown if cfg.move_tabs => return Some(Action::MoveTabRight),
             Key::Char('+') | Key::Char('=') if cfg.zoom => return Some(Action::ZoomIn),
+            Key::Char(',') => return Some(Action::Preferences),
             Key::Char('?') => return Some(Action::Shortcuts),
             _ => {}
         }
@@ -170,6 +172,9 @@ pub fn resolve_shortcut(ev: KeyEvent, focus: Focus, cfg: &KeyConfig) -> Option<A
             }
             if c == '?' {
                 return Some(Action::Shortcuts);
+            }
+            if c == ',' {
+                return Some(Action::Preferences);
             }
         }
         match ev.key {

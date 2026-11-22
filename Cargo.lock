@@ -953,6 +953,7 @@ dependencies = [
  "termust-render-cairo",
  "termust-store",
  "termust-term-engine",
+ "termust-text-render",
  "termust-ui",
 ]
 
@@ -966,6 +967,10 @@ dependencies = [
 [[package]]
 name = "termust-core"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
 
 [[package]]
 name = "termust-fs-local"
