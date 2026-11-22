@@ -38,6 +38,7 @@ pub struct TabSummary {
     pub title: String,
     pub cwd: PathBuf,
     pub active: bool,
+    pub attention: bool,
 }
 
 pub struct TabManager {
@@ -181,7 +182,7 @@ impl TabManager {
         self.create_entry(tab_id, cwds)?;
         self.attach_tab(tab_id)?;
         if let Some(entry) = self.entries.iter().find(|e| e.id == tab_id) {
-            self.tab_view.set_selected_page(&entry.page);
+            self.select_page(entry.page.clone());
         }
         self.focus_active();
         Ok(())
@@ -679,16 +680,24 @@ impl TabManager {
         }
     }
 
+    /// Selecciona una página y sincroniza el modelo en el acto. El notify de
+    /// `AdwTabView` corre con el manager prestado y no puede activar el modelo,
+    /// así que se hace explícitamente después de mover la selección.
+    fn select_page(&mut self, page: TabPage) {
+        self.tab_view.set_selected_page(&page);
+        self.on_page_selected(&page);
+    }
+
     pub fn select_index(&mut self, index: usize) {
         if let Some(entry) = self.entries.get(index) {
-            self.tab_view.set_selected_page(&entry.page);
+            self.select_page(entry.page.clone());
         }
     }
 
     pub fn select_tab(&mut self, id: TabId) -> bool {
         match self.entries.iter().find(|entry| entry.id == id) {
             Some(entry) => {
-                self.tab_view.set_selected_page(&entry.page);
+                self.select_page(entry.page.clone());
                 true
             }
             None => false,
@@ -697,8 +706,23 @@ impl TabManager {
 
     pub fn select_last(&mut self) {
         if let Some(entry) = self.entries.last() {
-            self.tab_view.set_selected_page(&entry.page);
+            self.select_page(entry.page.clone());
         }
+    }
+
+    /// Cierra una pestaña completa por id (no un panel). La confirmación por
+    /// proceso en foreground la resuelve `connect_close_page`.
+    pub fn close_tab(manager: &Rc<RefCell<Self>>, id: TabId) {
+        let (view, page) = {
+            let Ok(manager) = manager.try_borrow() else {
+                return;
+            };
+            let Some(entry) = manager.entries.iter().find(|entry| entry.id == id) else {
+                return;
+            };
+            (manager.tab_view.clone(), entry.page.clone())
+        };
+        view.close_page(&page);
     }
 
     pub fn select_next(&mut self) {
@@ -758,6 +782,7 @@ impl TabManager {
                     title: entry.page.title().to_string(),
                     cwd,
                     active: Some(index) == active,
+                    attention: entry.page.needs_attention(),
                 }
             })
             .collect()
@@ -1077,8 +1102,13 @@ impl TabManager {
         if self.entries.is_empty() {
             if let Some(id) = new_active {
                 if self.attach_tab(id).is_ok() {
-                    if let Some(entry) = self.entries.iter().find(|e| e.id == id) {
-                        self.tab_view.set_selected_page(&entry.page);
+                    if let Some(page) = self
+                        .entries
+                        .iter()
+                        .find(|entry| entry.id == id)
+                        .map(|entry| entry.page.clone())
+                    {
+                        self.select_page(page);
                     }
                     self.focus_active();
                 }

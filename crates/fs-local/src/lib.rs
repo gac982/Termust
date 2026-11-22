@@ -26,8 +26,10 @@ pub struct FileEntry {
     pub path: PathBuf,
     pub name: String,
     pub kind: EntryKind,
-    /// Navegable: directorio real o symlink que apunta a un directorio.
+    /// Directorio real o symlink que apunta a un directorio.
     pub is_dir: bool,
+    /// Se puede abrir como carpeta (permisos de lectura/ejecución).
+    pub readable: bool,
     pub hidden: bool,
 }
 
@@ -56,7 +58,8 @@ impl std::error::Error for FsError {}
 
 /// Lee un directorio y devuelve las entradas ordenadas (carpetas primero).
 pub fn list_dir(path: &Path, include_hidden: bool) -> Result<Vec<FileEntry>, FsError> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| map_error(path, &error))?;
+    // Se sigue el symlink final: un cwd lógico puede ser un enlace a carpeta.
+    let metadata = std::fs::metadata(path).map_err(|error| map_error(path, &error))?;
     if !metadata.is_dir() {
         return Err(FsError::NotADirectory(path.to_path_buf()));
     }
@@ -83,11 +86,13 @@ pub fn list_dir(path: &Path, include_hidden: bool) -> Result<Vec<FileEntry>, FsE
             Ok(kind) if kind.is_file() => (EntryKind::File, false),
             _ => (EntryKind::Other, false),
         };
+        let readable = !is_dir || can_open_dir(&entry_path);
         entries.push(FileEntry {
             path: entry_path,
             name,
             kind,
             is_dir,
+            readable,
             hidden,
         });
     }
@@ -166,6 +171,17 @@ pub fn type_label(entry: &FileEntry) -> &'static str {
         EntryKind::File => "Archivo",
         EntryKind::Other => "Otro",
     }
+}
+
+/// `access(2)` con R_OK|X_OK: un directorio sin permiso de apertura se marca
+/// como no navegable sin intentar listarlo.
+fn can_open_dir(path: &Path) -> bool {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c_path) = CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    unsafe { libc::access(c_path.as_ptr(), libc::R_OK | libc::X_OK) == 0 }
 }
 
 fn extension(name: &str) -> String {
@@ -266,6 +282,33 @@ mod tests {
             .expect("symlink a directorio");
         assert_eq!(directory.kind, EntryKind::SymlinkToDir);
         assert!(directory.is_dir);
+    }
+
+    #[test]
+    fn symlinked_directory_can_be_listed() {
+        let dir = TempDir::new("symlink-root");
+        fs::create_dir(dir.path().join("real")).unwrap();
+        fs::write(dir.path().join("real/a.txt"), b"a").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("link")).unwrap();
+        let entries = list_dir(&dir.path().join("link"), false).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "a.txt");
+    }
+
+    #[test]
+    fn unreadable_dir_is_inert_row() {
+        let dir = TempDir::new("unreadable-row");
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let entries = list_dir(dir.path(), false).unwrap();
+        let locked_entry = entries
+            .iter()
+            .find(|entry| entry.name == "locked")
+            .expect("locked listado");
+        assert!(locked_entry.is_dir);
+        assert!(!locked_entry.readable);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]

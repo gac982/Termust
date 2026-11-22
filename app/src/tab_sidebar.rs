@@ -15,6 +15,7 @@ pub struct TabSidebar {
     list: gtk::ListBox,
     manager: Weak<RefCell<TabManager>>,
     ids: Rc<RefCell<Vec<u64>>>,
+    last: RefCell<Vec<crate::tabs::TabSummary>>,
     refreshing: Cell<bool>,
 }
 
@@ -42,6 +43,7 @@ impl TabSidebar {
             list: list.clone(),
             manager: Rc::downgrade(manager),
             ids: Rc::new(RefCell::new(Vec::new())),
+            last: RefCell::new(Vec::new()),
             refreshing: Cell::new(false),
         });
         sidebar.connect(manager);
@@ -110,6 +112,10 @@ impl TabSidebar {
             manager.tab_summaries()
         };
 
+        if *self.last.borrow() == summaries {
+            self.refreshing.set(false);
+            return;
+        }
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
@@ -148,6 +154,13 @@ impl TabSidebar {
             labels.append(&cwd);
             content.append(&labels);
 
+            if summary.attention {
+                let attention = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                attention.set_tooltip_text(Some("La última orden falló"));
+                attention.add_css_class("error");
+                content.append(&attention);
+            }
+
             let close = gtk::Button::from_icon_name("window-close-symbolic");
             close.add_css_class("flat");
             close.set_tooltip_text(Some("Cerrar pestaña"));
@@ -157,10 +170,7 @@ impl TabSidebar {
                 let id = summary.id;
                 close.connect_clicked(move |_| {
                     if let Some(manager) = manager.upgrade() {
-                        if let Ok(mut manager) = manager.try_borrow_mut() {
-                            manager.select_tab(id);
-                        }
-                        TabManager::close_request(&manager);
+                        TabManager::close_tab(&manager, id);
                     }
                 });
             }
@@ -172,6 +182,7 @@ impl TabSidebar {
                 self.list.select_row(Some(&row));
             }
         }
+        *self.last.borrow_mut() = summaries;
         self.refreshing.set(false);
     }
 }
