@@ -11,6 +11,8 @@ y el versionado es [SemVer](https://semver.org/lang/es/).
 - La rueda sobre el prompt recorre el scrollback aunque el shell tenga reporte
   de ratón activo; ya no se le envía a zle, que redibujaba el prompt y lo hacía
   parpadear.
+- La rueda ya no repinta la terminal cuando no hay scrollback ni el
+  desplazamiento cambia; se elimina el parpadeo del prompt en ese caso.
 
 ### Changed
 

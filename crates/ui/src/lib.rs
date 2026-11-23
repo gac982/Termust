@@ -269,15 +269,17 @@ impl TerminalView {
                     );
                     return glib::Propagation::Stop;
                 }
+                let moved = engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
                 if std::env::var_os("TERMUST_SCROLL_LOG").is_some() {
-                    let before = engine.borrow_mut().snapshot().display_offset;
-                    engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
-                    let after = engine.borrow_mut().snapshot().display_offset;
-                    eprintln!("termust-scroll: scrollback {before} -> {after}");
-                } else {
-                    engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
+                    let after = engine.borrow_mut().snapshot();
+                    eprintln!(
+                        "termust-scroll: scrollback movido={moved} offset={} (historial {})",
+                        after.display_offset, after.history_size
+                    );
                 }
-                area_scroll.queue_draw();
+                if moved {
+                    area_scroll.queue_draw();
+                }
                 glib::Propagation::Stop
             });
             area.add_controller(scroll);
@@ -474,6 +476,11 @@ impl TerminalView {
                 while let Ok(ev) = events.try_recv() {
                     match ev {
                         PtyEvent::Output(bytes) => {
+                            if std::env::var_os("TERMUST_SCROLL_LOG").is_some() {
+                                let preview = String::from_utf8_lossy(&bytes);
+                                let preview: String = preview.chars().take(80).collect();
+                                eprintln!("termust-scroll: pty {} bytes: {preview:?}", bytes.len());
+                            }
                             last_output.set(Some(std::time::Instant::now()));
                             {
                                 let mut e = engine.borrow_mut();

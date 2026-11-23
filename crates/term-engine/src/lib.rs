@@ -219,8 +219,10 @@ impl TerminalEngine for AlacrittyEngine {
         }
     }
 
-    fn scroll(&mut self, delta: i32) {
+    fn scroll(&mut self, delta: i32) -> bool {
+        let before = self.term.grid().display_offset();
         self.term.scroll_display(Scroll::Delta(delta));
+        self.term.grid().display_offset() != before
     }
 
     fn title(&self) -> Option<&str> {
@@ -359,6 +361,18 @@ mod tests {
         let s = e.snapshot();
         assert!(s.history_size > 0);
         assert_eq!(s.row_text(s.size.rows - 2), "line9");
+    }
+
+    #[test]
+    fn scroll_reports_only_real_movement() {
+        let mut e = engine();
+        assert!(!e.scroll(3));
+        for i in 0..10 {
+            e.feed(format!("line{i}\r\n").as_bytes());
+        }
+        assert!(e.scroll(3));
+        assert!(e.scroll(-3));
+        assert!(!e.scroll(-3));
     }
 
     #[test]

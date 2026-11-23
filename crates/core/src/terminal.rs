@@ -167,7 +167,8 @@ pub trait TerminalEngine {
 
     /// Ajusta el techo de scrollback (cap global entre paneles).
     fn set_history_limit(&mut self, _lines: usize) {}
-    fn scroll(&mut self, delta: i32);
+    /// Mueve el scrollback; devuelve si el desplazamiento cambió.
+    fn scroll(&mut self, delta: i32) -> bool;
     fn title(&self) -> Option<&str>;
     fn cwd(&self) -> Option<&PathBuf>;
     fn prompt(&self) -> PromptStatus;
