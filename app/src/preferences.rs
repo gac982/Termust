@@ -23,6 +23,10 @@ pub struct PreferencesController {
     light_row: ComboRow,
     opacity_row: ActionRow,
     opacity_scale: gtk::Scale,
+    font_row: ComboRow,
+    font_ids: Vec<String>,
+    size_row: SpinRow,
+    preview: gtk::Label,
     zoom_row: SpinRow,
     contrast_row: ActionRow,
     warning: gtk::Label,
@@ -129,11 +133,56 @@ impl PreferencesController {
         transparency_group.add(&warning);
         page.add(&transparency_group);
 
-        let text_group = PreferencesGroup::builder().title(i18n::tr("Texto")).build();
+        let text_group = PreferencesGroup::builder()
+            .title(i18n::tr("Texto"))
+            .description(i18n::tr("Tipografía y tamaño solo del terminal."))
+            .build();
+        let mut families: Vec<String> = dialog
+            .pango_context()
+            .font_map()
+            .map(|map| {
+                map.list_families()
+                    .into_iter()
+                    .filter(|family| family.is_monospace())
+                    .map(|family| family.name().to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        families.sort_by_key(|name| name.to_lowercase());
+        families.dedup();
+        let saved_family = appearance.font_family();
+        if !saved_family.is_empty() && !families.contains(&saved_family) {
+            families.push(saved_family);
+        }
+        let mut font_ids = vec![String::new()];
+        font_ids.extend(families.iter().cloned());
+        let font_names: Vec<String> = std::iter::once(i18n::tr("Predeterminada del sistema"))
+            .chain(families.iter().cloned())
+            .collect();
+        let font_strings =
+            gtk::StringList::new(&font_names.iter().map(String::as_str).collect::<Vec<_>>());
+        let font_row = ComboRow::builder()
+            .title(i18n::tr("Tipografía"))
+            .subtitle(i18n::tr("Solo el terminal"))
+            .model(&font_strings)
+            .build();
+
+        let size_row = SpinRow::with_range(6.0, 32.0, 0.5);
+        size_row.set_title(&i18n::tr("Tamaño"));
+        size_row.set_subtitle(&i18n::tr("Puntos; el zoom se aplica encima"));
+        size_row.set_digits(1);
+
+        let preview = gtk::Label::new(None);
+        let preview_row = ActionRow::builder().title(i18n::tr("Vista previa")).build();
+        preview_row.add_suffix(&preview);
+
         let zoom_row = SpinRow::with_range(0.5, 2.0, 0.1);
-        zoom_row.set_title("Zoom de fuente");
+        zoom_row.set_title(&i18n::tr("Zoom de fuente"));
         zoom_row.set_subtitle("Ctrl + / Ctrl − / Ctrl 0");
         zoom_row.set_digits(1);
+        text_group.add(&font_row);
+        text_group.add(&size_row);
+        text_group.add(&preview_row);
         text_group.add(&zoom_row);
         page.add(&text_group);
         dialog.add(&page);
@@ -173,6 +222,10 @@ impl PreferencesController {
             light_row,
             opacity_row,
             opacity_scale,
+            font_row,
+            font_ids,
+            size_row,
+            preview,
             zoom_row,
             contrast_row,
             warning,
@@ -246,6 +299,31 @@ impl PreferencesController {
         }
         {
             let weak = Rc::downgrade(self);
+            self.font_row.connect_selected_notify(move |_| {
+                if let Some(controller) = weak.upgrade() {
+                    if controller.updating.get() {
+                        return;
+                    }
+                    let index = controller.font_row.selected() as usize;
+                    if let Some(family) = controller.font_ids.get(index) {
+                        controller.appearance.set_font_family(family);
+                    }
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
+            self.size_row.connect_value_notify(move |row| {
+                if let Some(controller) = weak.upgrade() {
+                    if controller.updating.get() {
+                        return;
+                    }
+                    controller.appearance.set_font_size(row.value());
+                }
+            });
+        }
+        {
+            let weak = Rc::downgrade(self);
             self.zoom_row.connect_value_notify(move |row| {
                 if let Some(controller) = weak.upgrade() {
                     if controller.updating.get() {
@@ -308,6 +386,20 @@ impl PreferencesController {
         } else {
             "Solo el fondo; sin desenfoque"
         });
+        let family = self.appearance.font_family();
+        let font_index = self
+            .font_ids
+            .iter()
+            .position(|id| *id == family)
+            .unwrap_or(0);
+        self.font_row.set_selected(font_index as u32);
+        let size = self.appearance.font_size();
+        self.size_row.set_value(if size > 0.0 {
+            size
+        } else {
+            self.appearance.base_font().size
+        });
+        self.update_font_preview();
         self.zoom_row.set_value(self.appearance.font_scale());
 
         let theme = self.appearance.resolved_theme();
@@ -323,6 +415,15 @@ impl PreferencesController {
         ));
         self.update_warning();
         self.updating.set(false);
+    }
+
+    fn update_font_preview(&self) {
+        let font = self.appearance.font();
+        let family = gtk::glib::markup_escape_text(&font.family);
+        let size = (font.size * f64::from(gtk::pango::SCALE)).round() as i32;
+        self.preview.set_markup(&format!(
+            "<span font_family=\"{family}\" font_size=\"{size}\">Aa 123 — Terminal</span>"
+        ));
     }
 
     fn update_warning(&self) {
@@ -375,6 +476,30 @@ impl PreferencesController {
 
     pub fn zoom_value(&self) -> f64 {
         self.zoom_row.value()
+    }
+
+    pub fn font_family(&self) -> String {
+        self.appearance.font_family()
+    }
+
+    pub fn font_size(&self) -> f64 {
+        self.appearance.font_size()
+    }
+
+    pub fn font_family_names(&self) -> Vec<String> {
+        self.font_ids.clone()
+    }
+
+    pub fn select_font_family(&self, family: &str) -> bool {
+        let Some(index) = self.font_ids.iter().position(|id| id == family) else {
+            return false;
+        };
+        self.font_row.set_selected(index as u32);
+        true
+    }
+
+    pub fn set_font_size_value(&self, size: f64) {
+        self.size_row.set_value(size);
     }
 
     pub fn transparency_sensitive(&self) -> bool {

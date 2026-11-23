@@ -47,6 +47,17 @@
       <summary>Transparencia del fondo</summary>
       <description>Porcentaje de transparencia del fondo (0 = opaco). El texto y el cursor no se atenúan.</description>
     </key>
+    <key name="font-family" type="s">
+      <default>''</default>
+      <summary>Tipografía del terminal</summary>
+      <description>Familia monoespaciada del terminal; vacía usa la del sistema.</description>
+    </key>
+    <key name="font-size" type="d">
+      <default>0.0</default>
+      <range min="0.0" max="32.0"/>
+      <summary>Tamaño de fuente del terminal</summary>
+      <description>Tamaño base en puntos; 0 usa el del sistema. El zoom se aplica encima.</description>
+    </key>
     <key name="font-scale" type="d">
       <default>1.0</default>
       <range min="0.5" max="2.0"/>

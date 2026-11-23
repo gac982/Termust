@@ -1573,19 +1573,80 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let preferences = preferences.clone();
         let window = window.clone();
         let app = app.clone();
+        let manager = manager.clone();
+        let appearance = appearance.clone();
         glib::timeout_add_local_once(Duration::from_millis(900), move || {
             preferences.present(&window);
             let preferences2 = preferences.clone();
             let app2 = app.clone();
+            let manager2 = manager.clone();
+            let appearance2 = appearance.clone();
             glib::timeout_add_local_once(Duration::from_millis(700), move || {
                 let visible = preferences2.is_visible();
                 eprintln!(
-                    "termust-prefs-test: visible={visible} temas={} {}",
-                    preferences2.theme_count(),
-                    if visible { "ok" } else { "FAIL" }
+                    "termust-prefs-test: visible={visible} temas={}",
+                    preferences2.theme_count()
                 );
+                let mut failed = !visible;
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-prefs-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed |= !ok;
+                };
+                let before_family = preferences2.font_family();
+                let before_size = preferences2.font_size();
+                let scale = appearance2.font_scale();
+                preferences2.set_font_size_value(17.0);
+                let size_ok = manager2
+                    .borrow()
+                    .active_view()
+                    .map(|view| (view.font_size() - 17.0 * scale).abs() < 0.01)
+                    .unwrap_or(false);
+                check(
+                    "tamaño del terminal",
+                    size_ok && (preferences2.font_size() - 17.0).abs() < 0.001,
+                );
+
+                let family = preferences2
+                    .font_family_names()
+                    .into_iter()
+                    .find(|name| !name.is_empty());
+                let family_ok = match &family {
+                    Some(family) => {
+                        preferences2.select_font_family(family);
+                        manager2
+                            .borrow()
+                            .active_view()
+                            .map(|view| view.font_family() == *family)
+                            .unwrap_or(false)
+                    }
+                    None => true,
+                };
+                check("familia del terminal", family_ok);
+
+                if let Some(settings) = gsettings_with_key("font-size") {
+                    check(
+                        "font-size persiste",
+                        (settings.double("font-size") - 17.0).abs() < 0.001,
+                    );
+                }
+                if let Some(settings) = gsettings_with_key("font-family") {
+                    if let Some(family) = &family {
+                        check(
+                            "font-family persiste",
+                            settings.string("font-family").as_str() == family.as_str(),
+                        );
+                    }
+                }
+
+                appearance2.set_font_family(&before_family);
+                appearance2.set_font_size(before_size);
+                preferences2.sync_now();
                 preferences2.close();
-                if !visible {
+                eprintln!("termust-prefs-test: {}", if failed { "FAIL" } else { "ok" });
+                if failed {
                     std::process::exit(1);
                 }
                 app2.quit();

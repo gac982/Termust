@@ -21,6 +21,8 @@ const KEY_THEME_DARK: &str = "theme-dark";
 const KEY_THEME_LIGHT: &str = "theme-light";
 const KEY_OPACITY: &str = "opacity";
 const KEY_FONT_SCALE: &str = "font-scale";
+const KEY_FONT_FAMILY: &str = "font-family";
+const KEY_FONT_SIZE: &str = "font-size";
 
 /// Estado en memoria usado cuando el esquema GSettings no está instalado
 /// (por ejemplo, ejecutando el binario desde `target/` sin Flatpak).
@@ -30,6 +32,8 @@ struct Memory {
     light: String,
     opacity: i32,
     font_scale: f64,
+    font_family: String,
+    font_size: f64,
 }
 
 impl Default for Memory {
@@ -40,6 +44,8 @@ impl Default for Memory {
             light: "catppuccin-latte".to_string(),
             opacity: 0,
             font_scale: 1.0,
+            font_family: String::new(),
+            font_size: 0.0,
         }
     }
 }
@@ -109,6 +115,8 @@ impl Appearance {
                 KEY_THEME_LIGHT,
                 KEY_OPACITY,
                 KEY_FONT_SCALE,
+                KEY_FONT_FAMILY,
+                KEY_FONT_SIZE,
             ] {
                 let weak = weak.clone();
                 settings.connect_changed(Some(key), move |_, _| {
@@ -147,6 +155,10 @@ impl Appearance {
         if (scale - self.font_scale()).abs() > f64::EPSILON {
             self.write_double(KEY_FONT_SCALE, scale);
         }
+        let size = clamp_terminal_font_size(self.font_size());
+        if (size - self.font_size()).abs() > f64::EPSILON {
+            self.write_double(KEY_FONT_SIZE, size);
+        }
     }
 
     pub fn on_change(&self, callback: impl Fn() + 'static) {
@@ -168,45 +180,47 @@ impl Appearance {
             .unwrap_or(false)
     }
 
+    /// Fallback por clave cuando el esquema instalado no tiene esa clave
+    /// (binario local con un esquema viejo) o no hay esquema.
+    fn memory_string(&self, key: &str) -> Option<String> {
+        let memory = self.memory.borrow();
+        Some(match key {
+            KEY_THEME => memory.theme.clone(),
+            KEY_THEME_DARK => memory.dark.clone(),
+            KEY_THEME_LIGHT => memory.light.clone(),
+            KEY_FONT_FAMILY => memory.font_family.clone(),
+            _ => return None,
+        })
+    }
+
     fn read_string(&self, key: &str) -> Option<String> {
         match &self.settings {
             Some(settings) if self.has_key(key) => Some(settings.string(key).to_string()),
-            Some(_) => None,
-            None => {
-                let memory = self.memory.borrow();
-                Some(match key {
-                    KEY_THEME => memory.theme.clone(),
-                    KEY_THEME_DARK => memory.dark.clone(),
-                    KEY_THEME_LIGHT => memory.light.clone(),
-                    _ => return None,
-                })
-            }
+            _ => self.memory_string(key),
         }
     }
 
     fn write_string(&self, key: &str, value: &str) {
-        match &self.settings {
-            Some(settings) if self.has_key(key) => {
+        if let Some(settings) = &self.settings {
+            if self.has_key(key) {
                 let _ = settings.set_string(key, value);
+                return;
             }
-            Some(_) => {}
-            None => {
-                let mut memory = self.memory.borrow_mut();
-                match key {
-                    KEY_THEME => memory.theme = value.to_string(),
-                    KEY_THEME_DARK => memory.dark = value.to_string(),
-                    KEY_THEME_LIGHT => memory.light = value.to_string(),
-                    _ => {}
-                }
-            }
+        }
+        let mut memory = self.memory.borrow_mut();
+        match key {
+            KEY_THEME => memory.theme = value.to_string(),
+            KEY_THEME_DARK => memory.dark = value.to_string(),
+            KEY_THEME_LIGHT => memory.light = value.to_string(),
+            KEY_FONT_FAMILY => memory.font_family = value.to_string(),
+            _ => {}
         }
     }
 
     fn read_int(&self, key: &str) -> i32 {
         match &self.settings {
             Some(settings) if self.has_key(key) => settings.int(key),
-            Some(_) => 0,
-            None => match key {
+            _ => match key {
                 KEY_OPACITY => self.memory.borrow().opacity,
                 _ => 0,
             },
@@ -214,41 +228,39 @@ impl Appearance {
     }
 
     fn write_int(&self, key: &str, value: i32) {
-        match &self.settings {
-            Some(settings) if self.has_key(key) => {
+        if let Some(settings) = &self.settings {
+            if self.has_key(key) {
                 let _ = settings.set_int(key, value);
+                return;
             }
-            Some(_) => {}
-            None => {
-                if key == KEY_OPACITY {
-                    self.memory.borrow_mut().opacity = value;
-                }
-            }
+        }
+        if key == KEY_OPACITY {
+            self.memory.borrow_mut().opacity = value;
         }
     }
 
     fn read_double(&self, key: &str) -> f64 {
         match &self.settings {
             Some(settings) if self.has_key(key) => settings.double(key),
-            Some(_) => 1.0,
-            None => match key {
+            _ => match key {
                 KEY_FONT_SCALE => self.memory.borrow().font_scale,
+                KEY_FONT_SIZE => self.memory.borrow().font_size,
                 _ => 1.0,
             },
         }
     }
 
     fn write_double(&self, key: &str, value: f64) {
-        match &self.settings {
-            Some(settings) if self.has_key(key) => {
+        if let Some(settings) = &self.settings {
+            if self.has_key(key) {
                 let _ = settings.set_double(key, value);
+                return;
             }
-            Some(_) => {}
-            None => {
-                if key == KEY_FONT_SCALE {
-                    self.memory.borrow_mut().font_scale = value;
-                }
-            }
+        }
+        match key {
+            KEY_FONT_SCALE => self.memory.borrow_mut().font_scale = value,
+            KEY_FONT_SIZE => self.memory.borrow_mut().font_size = value,
+            _ => {}
         }
     }
 
@@ -352,15 +364,33 @@ impl Appearance {
         &self.base_font
     }
 
-    /// Fuente con la escala de zoom aplicada.
+    pub fn font_family(&self) -> String {
+        self.read_string(KEY_FONT_FAMILY).unwrap_or_default()
+    }
+
+    pub fn set_font_family(&self, family: &str) {
+        self.write_string(KEY_FONT_FAMILY, family.trim());
+        self.notify();
+    }
+
+    pub fn font_size(&self) -> f64 {
+        clamp_terminal_font_size(self.read_double(KEY_FONT_SIZE))
+    }
+
+    pub fn set_font_size(&self, size: f64) {
+        self.write_double(KEY_FONT_SIZE, clamp_terminal_font_size(size));
+        self.notify();
+    }
+
+    /// Fuente del terminal: familia/tamaño elegidos (o los del sistema) con la
+    /// escala de zoom aplicada.
     pub fn font(&self) -> FontSpec {
-        FontSpec {
-            family: self.base_font.family.clone(),
-            size: termust_core::appearance::scaled_font_size(
-                self.base_font.size,
-                self.font_scale(),
-            ),
-        }
+        effective_terminal_font(
+            &self.base_font,
+            &self.font_family(),
+            self.font_size(),
+            self.font_scale(),
+        )
     }
 
     /// Alto contraste del sistema: desactiva la transparencia (FR-9.2).
@@ -449,5 +479,67 @@ pub fn display_name(theme: &Theme) -> String {
     match theme.variant {
         ThemeVariant::Dark => format!("{}  ·  oscuro", theme.name),
         ThemeVariant::Light => format!("{}  ·  claro", theme.name),
+    }
+}
+
+/// Tamaño elegido del terminal: 0 = usar el del sistema; si no, 6–32 puntos.
+pub fn clamp_terminal_font_size(size: f64) -> f64 {
+    if !size.is_finite() || size <= 0.0 {
+        return 0.0;
+    }
+    size.clamp(6.0, 32.0)
+}
+
+pub fn effective_terminal_font(base: &FontSpec, family: &str, size: f64, scale: f64) -> FontSpec {
+    let family = family.trim();
+    let family = if family.is_empty() {
+        base.family.clone()
+    } else {
+        family.to_string()
+    };
+    let size = if size > 0.0 { size } else { base.size };
+    FontSpec {
+        family,
+        size: termust_core::appearance::scaled_font_size(size, scale),
+    }
+}
+
+#[cfg(test)]
+mod terminal_font_tests {
+    use super::*;
+
+    fn base() -> FontSpec {
+        FontSpec {
+            family: "Monospace".to_string(),
+            size: 11.0,
+        }
+    }
+
+    #[test]
+    fn uses_system_family_and_size_when_unset() {
+        let font = effective_terminal_font(&base(), "", 0.0, 1.0);
+        assert_eq!(font.family, "Monospace");
+        assert_eq!(font.size, 11.0);
+    }
+
+    #[test]
+    fn applies_family_size_and_zoom() {
+        let font = effective_terminal_font(&base(), "DejaVu Sans Mono", 14.0, 1.5);
+        assert_eq!(font.family, "DejaVu Sans Mono");
+        assert_eq!(font.size, 21.0);
+
+        let font = effective_terminal_font(&base(), "  ", 0.0, 2.0);
+        assert_eq!(font.family, "Monospace");
+        assert_eq!(font.size, 22.0);
+    }
+
+    #[test]
+    fn clamps_terminal_size() {
+        assert_eq!(clamp_terminal_font_size(0.0), 0.0);
+        assert_eq!(clamp_terminal_font_size(-3.0), 0.0);
+        assert_eq!(clamp_terminal_font_size(f64::NAN), 0.0);
+        assert_eq!(clamp_terminal_font_size(4.0), 6.0);
+        assert_eq!(clamp_terminal_font_size(40.0), 32.0);
+        assert_eq!(clamp_terminal_font_size(13.5), 13.5);
     }
 }

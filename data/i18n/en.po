@@ -333,3 +333,24 @@ msgstr "Truncated diff"
 
 msgid "El archivo no existe"
 msgstr "The file does not exist"
+
+msgid "Tipografía"
+msgstr "Typography"
+
+msgid "Solo el terminal"
+msgstr "Terminal only"
+
+msgid "Tipografía y tamaño solo del terminal."
+msgstr "Typography and size apply to the terminal only."
+
+msgid "Tamaño"
+msgstr "Size"
+
+msgid "Puntos; el zoom se aplica encima"
+msgstr "Points; zoom is applied on top"
+
+msgid "Predeterminada del sistema"
+msgstr "System default"
+
+msgid "Vista previa"
+msgstr "Preview"

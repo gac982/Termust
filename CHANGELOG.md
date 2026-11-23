@@ -4,6 +4,14 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Added
+
+- Preferencias → Texto: tipografía (familias monoespaciadas instaladas) y
+  tamaño (6–32 puntos) del terminal, con vista previa. El zoom sigue
+  multiplicando el tamaño elegido.
+
 ## [1.1.0] - 2026-11-23
 
 Segunda versión estable: columna de archivos con diff de git por archivo, vista

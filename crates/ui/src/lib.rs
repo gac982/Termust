@@ -518,6 +518,10 @@ impl TerminalView {
         self.bg_alpha.get()
     }
 
+    pub fn font_family(&self) -> String {
+        self.font.borrow().family.clone()
+    }
+
     pub fn font_size(&self) -> f64 {
         self.font.borrow().size
     }
