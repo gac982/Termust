@@ -43,9 +43,9 @@
     </key>
     <key name="opacity" type="i">
       <default>0</default>
-      <range min="0" max="100"/>
+      <range min="0" max="80"/>
       <summary>Transparencia del fondo</summary>
-      <description>Porcentaje de transparencia del fondo (0 = opaco). El texto y el cursor no se atenúan.</description>
+      <description>Porcentaje de transparencia del fondo del terminal (0 = opaco, máximo 80). La barra y los paneles no se atenúan.</description>
     </key>
     <key name="font-family" type="s">
       <default>''</default>

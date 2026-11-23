@@ -9,9 +9,12 @@ pub const MIN_FONT_SCALE: f64 = 0.5;
 pub const MAX_FONT_SCALE: f64 = 2.0;
 pub const FONT_SCALE_STEP: f64 = 0.1;
 
-/// Recorta un porcentaje de transparencia al rango 0–100.
+/// Tope de transparencia: el fondo del terminal nunca desaparece del todo.
+pub const MAX_OPACITY: i32 = 80;
+
+/// Recorta un porcentaje de transparencia al rango 0–80.
 pub fn clamp_opacity(percent: i32) -> i32 {
-    percent.clamp(0, 100)
+    percent.clamp(0, MAX_OPACITY)
 }
 
 /// Alpha del fondo a partir del porcentaje de transparencia (`0` = opaco).
@@ -97,14 +100,14 @@ palette = [
     }
 
     #[test]
-    fn opacity_clamped_0_100() {
+    fn opacity_clamped_0_80() {
         assert_eq!(clamp_opacity(-5), 0);
         assert_eq!(clamp_opacity(0), 0);
         assert_eq!(clamp_opacity(55), 55);
-        assert_eq!(clamp_opacity(150), 100);
+        assert_eq!(clamp_opacity(150), MAX_OPACITY);
         assert_eq!(bg_alpha(0), 1.0);
         assert!((bg_alpha(50) - 0.5).abs() < f64::EPSILON);
-        assert_eq!(bg_alpha(100), 0.0);
+        assert!((bg_alpha(100) - 0.2).abs() < f64::EPSILON);
     }
 
     #[test]

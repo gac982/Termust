@@ -39,7 +39,16 @@ window.termust-transparent {
 }
 
 window.termust-transparent headerbar {
-  background-color: transparent;
+  background-color: @headerbar_bg_color;
+}
+
+window.termust-transparent .termust-files,
+window.termust-transparent .termust-tab-sidebar {
+  background-color: @window_bg_color;
+}
+
+window.termust-transparent .termust-agent-bar {
+  background-color: @headerbar_bg_color;
 }
 
 window.termust-transparent .termust-pane,

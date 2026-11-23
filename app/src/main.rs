@@ -1398,7 +1398,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             appearance.set_font_scale(1.5);
             let expected = appearance.theme("catppuccin-mocha").map(|theme| theme.fg);
             let gruvbox = appearance.theme("gruvbox-dark").map(|theme| theme.fg);
-            let base = appearance.base_font().size;
+            let base = {
+                let chosen = appearance.font_size();
+                if chosen > 0.0 {
+                    chosen
+                } else {
+                    appearance.base_font().size
+                }
+            };
             let high = appearance.high_contrast();
             let manager2 = manager.clone();
             let appearance2 = appearance.clone();
@@ -1538,7 +1545,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 let expected = if high {
                     1.0
                 } else {
-                    1.0 - percent as f64 / 100.0
+                    termust_core::appearance::bg_alpha(percent)
                 };
                 let alpha_ok = (alpha - expected).abs() < 0.01;
                 failed |= !alpha_ok;

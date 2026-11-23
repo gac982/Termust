@@ -85,14 +85,14 @@ msgstr "Contraste del tema"
 msgid "Transparencia"
 msgstr "Transparencia"
 
-msgid "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque."
-msgstr "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque."
+msgid "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %."
+msgstr "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %."
 
 msgid "Transparencia del fondo"
 msgstr "Transparencia del fondo"
 
-msgid "Solo el fondo; sin desenfoque"
-msgstr "Solo el fondo; sin desenfoque"
+msgid "Solo el fondo del terminal; sin desenfoque"
+msgstr "Solo el fondo del terminal; sin desenfoque"
 
 msgid "Desactivado por alto contraste"
 msgstr "Desactivado por alto contraste"

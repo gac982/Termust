@@ -12,6 +12,12 @@ y el versionado es [SemVer](https://semver.org/lang/es/).
   tamaño (6–32 puntos) del terminal, con vista previa. El zoom sigue
   multiplicando el tamaño elegido.
 
+### Fixed
+
+- La transparencia afecta solo al fondo del terminal: la barra superior y los
+  paneles quedan opacos, y el fondo tiene un tope del 80 % para que el texto
+  siga siendo legible.
+
 ## [1.1.0] - 2026-11-23
 
 Segunda versión estable: columna de archivos con diff de git por archivo, vista

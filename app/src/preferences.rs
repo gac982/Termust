@@ -107,14 +107,19 @@ impl PreferencesController {
         let transparency_group = PreferencesGroup::builder()
             .title(i18n::tr("Transparencia"))
             .description(i18n::tr(
-                "Solo el fondo. Texto, cursor y paneles siguen opacos; no hay desenfoque.",
+                "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %.",
             ))
             .build();
         let opacity_row = ActionRow::builder()
             .title(i18n::tr("Transparencia del fondo"))
-            .subtitle(i18n::tr("Solo el fondo; sin desenfoque"))
+            .subtitle(i18n::tr("Solo el fondo del terminal; sin desenfoque"))
             .build();
-        let opacity_scale = gtk::Scale::with_range(gtk::Orientation::Horizontal, 0.0, 100.0, 5.0);
+        let opacity_scale = gtk::Scale::with_range(
+            gtk::Orientation::Horizontal,
+            0.0,
+            termust_core::appearance::MAX_OPACITY as f64,
+            5.0,
+        );
         opacity_scale.set_draw_value(true);
         opacity_scale.set_value_pos(gtk::PositionType::Right);
         opacity_scale.set_size_request(200, -1);
@@ -384,7 +389,7 @@ impl PreferencesController {
         self.opacity_row.set_subtitle(if high {
             "Desactivado por alto contraste"
         } else {
-            "Solo el fondo; sin desenfoque"
+            "Solo el fondo del terminal; sin desenfoque"
         });
         let family = self.appearance.font_family();
         let font_index = self
