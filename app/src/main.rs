@@ -381,6 +381,22 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         ViewerColors::from_theme(&appearance.render_theme(None)),
         toast_overlay.clone(),
     );
+    let diff_view = diff_view::DiffView::new();
+    viewer.set_diff_page(diff_view.widget());
+    {
+        let weak = Rc::downgrade(&viewer);
+        let diff_view = diff_view.clone();
+        viewer.set_on_page_changed(move |diff| {
+            if !diff {
+                return;
+            }
+            if let Some(viewer) = weak.upgrade() {
+                if let Some(path) = viewer.path() {
+                    diff_view.load(&path);
+                }
+            }
+        });
+    }
     {
         let manager = Rc::downgrade(&manager);
         viewer.set_on_close(move || {
@@ -781,7 +797,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         .to_unicode()
                         .map(|ch| ch.eq_ignore_ascii_case(&'f'))
                         .unwrap_or(false);
-                if search {
+                if search && viewer.is_showing_file_page() {
                     viewer.toggle_search();
                     return glib::Propagation::Stop;
                 }
@@ -1953,6 +1969,24 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         failed3 |= !ok;
                     };
                     check("Vue resaltado por inyección", viewer3.highlight_count() > 0);
+                    check(
+                        "pagina archivo",
+                        viewer3.is_showing_file_page() && !viewer3.is_showing_diff(),
+                    );
+                    let missing = root3.join("no-existe.rs");
+                    viewer3.open_file(&missing);
+                    check(
+                        "ruta en error",
+                        viewer3.path().as_deref() == Some(missing.as_path()),
+                    );
+                    check("estado en error", viewer3.is_showing_status());
+                    viewer3.show_diff_page();
+                    check("pagina diff", viewer3.is_showing_diff());
+                    viewer3.show_file_page();
+                    check(
+                        "sin texto viejo",
+                        viewer3.is_showing_status() && !viewer3.is_showing_text(),
+                    );
                     viewer3.close();
                     check("cierra el visor", !viewer3.is_open());
                     let _ = std::fs::remove_dir_all(&root3);

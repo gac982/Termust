@@ -125,7 +125,6 @@ impl DiffView {
         view
     }
 
-    #[allow(dead_code)] // el layout de la columna lo conecta en la tarea 4
     pub fn widget(&self) -> &gtk::Box {
         &self.root
     }
