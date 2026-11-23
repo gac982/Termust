@@ -672,6 +672,45 @@ impl TabManager {
         true
     }
 
+    /// Cierra los paneles cuyo shell terminó. Devuelve `true` si hay que
+    /// cerrar la ventana (era el último panel de la última pestaña).
+    pub fn close_exited(&mut self) -> bool {
+        let mut exited: Vec<(TabId, PaneId)> = Vec::new();
+        for entry in &self.entries {
+            for (pane, view) in &entry.panes {
+                if view.exited() {
+                    exited.push((entry.id, *pane));
+                }
+            }
+        }
+        if exited.is_empty() {
+            return false;
+        }
+        if self.entries.len() == 1
+            && self.entries[0].panes.len() == 1
+            && exited.iter().any(|(tab, _)| *tab == self.entries[0].id)
+        {
+            return true;
+        }
+        for (tab_id, pane) in exited {
+            let panes = {
+                let model = self.model.borrow();
+                model.get(tab_id).map(|tab| tab.layout.len()).unwrap_or(0)
+            };
+            if panes > 1 {
+                self.close_pane(tab_id, pane);
+            } else if let Some(page) = self
+                .entries
+                .iter()
+                .find(|entry| entry.id == tab_id)
+                .map(|entry| entry.page.clone())
+            {
+                self.tab_view.close_page(&page);
+            }
+        }
+        false
+    }
+
     pub fn close_active(&mut self) {
         let Some(index) = self.active_entry_index() else {
             return;
