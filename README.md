@@ -197,12 +197,6 @@ se publican en `dist/` (`termust-<versión>.flatpak`, SBOM CycloneDX,
 - SSH usa el `git`/`ssh` del host y nunca lee claves privadas.
 - El visor es de solo lectura: no escribe archivos.
 
-## Estado
-
-Versión **1.2.2**. Tag y repo Flatpak firmados con la clave de release.
-GitHub y Flathub están en preparación; el repo propio queda como canal de
-distribución mientras tanto.
-
 ## Licencia
 
 GPL-3.0-or-later. Ver `LICENSE` y `NOTICE`.
