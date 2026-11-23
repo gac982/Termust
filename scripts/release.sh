@@ -3,7 +3,7 @@ set -eu
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 VERSION="$(cargo metadata --locked --no-deps --format-version=1 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["packages"][0]["version"])')"
-APP_ID=io.github.termust.Termost
+APP_ID=io.github.termust.Termust
 DIST="$ROOT/dist"
 mkdir -p "$DIST"
 

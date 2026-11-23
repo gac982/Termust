@@ -1,7 +1,7 @@
 //! Dominio y puertos de Termust.
 #![forbid(unsafe_code)]
 
-pub const APP_ID: &str = "io.github.termust.Termost";
+pub const APP_ID: &str = "io.github.termust.Termust";
 
 pub mod appearance;
 pub mod history;

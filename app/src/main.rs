@@ -2369,7 +2369,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let root = std::env::temp_dir().join(format!("termust-md-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
-            let icon = PathBuf::from("data/icons/hicolor/64x64/apps/io.github.termust.Termost.png");
+            let icon = PathBuf::from("data/icons/hicolor/64x64/apps/io.github.termust.Termust.png");
             let _ = std::fs::copy(&icon, root.join("icono.png"));
             let md = "\
 # Título principal

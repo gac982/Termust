@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-APP_ID="io.github.termust.Termost"
+APP_ID="io.github.termust.Termust"
 SRC="${1:-assets/termust_icon.png}"
 OUT="data/icons/hicolor"
 

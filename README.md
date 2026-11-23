@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/icons/hicolor/512x512/apps/io.github.termust.Termost.png" width="120" alt="Termust">
+  <img src="data/icons/hicolor/512x512/apps/io.github.termust.Termust.png" width="120" alt="Termust">
 </p>
 
 <h1 align="center">Termust</h1>
@@ -93,11 +93,11 @@ renderizada de Markdown.*
 
 ### Flatpak (bundle)
 
-Descargá `termust-1.2.0.flatpak` desde la página de releases y ejecutá:
+Descargá `termust-1.2.1.flatpak` desde la página de releases y ejecutá:
 
 ```sh
-flatpak install --user ./termust-1.2.0.flatpak
-flatpak run io.github.termust.Termost
+flatpak install --user ./termust-1.2.1.flatpak
+flatpak run io.github.termust.Termust
 ```
 
 ### Flatpak desde el repo firmado
@@ -107,7 +107,7 @@ gpg --import termust-release-key.asc
 flatpak remote-add --user --if-not-exists \
   --gpg-import=termust-release-key.asc termust \
   "file://$PWD/dist/repo"
-flatpak install --user termust io.github.termust.Termost
+flatpak install --user termust io.github.termust.Termust
 ```
 
 El bundle no lleva firma propia: la verificación la hace el repo (`summary`
@@ -128,8 +128,8 @@ Para generar el Flatpak local:
 
 ```sh
 ./scripts/flatpak-src.sh
-flatpak-builder --user --install --force-clean build-dir flatpak/io.github.termust.Termost.yml
-flatpak run io.github.termust.Termost
+flatpak-builder --user --install --force-clean build-dir flatpak/io.github.termust.Termust.yml
+flatpak run io.github.termust.Termust
 ```
 
 ## Uso
@@ -199,7 +199,7 @@ se publican en `dist/` (`termust-<versión>.flatpak`, SBOM CycloneDX,
 
 ## Estado
 
-Versión **1.2.0**. Tag y repo Flatpak firmados con la clave de release.
+Versión **1.2.1**. Tag y repo Flatpak firmados con la clave de release.
 GitHub y Flathub están en preparación; el repo propio queda como canal de
 distribución mientras tanto.
 

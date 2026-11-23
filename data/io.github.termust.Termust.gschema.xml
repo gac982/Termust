@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="io.github.termust.Termost" path="/io/github/termust/Termost/">
+  <schema id="io.github.termust.Termust" path="/io/github/termust/Termust/">
     <key name="files-panel" type="b">
       <default>false</default>
       <summary>Mostrar el panel de archivos</summary>

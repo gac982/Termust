@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.termust.Termost</id>
+  <id>io.github.termust.Termust</id>
   <name>Termust</name>
   <summary>A modern terminal for GNOME</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -21,7 +21,7 @@
   <requires>
     <display_length compare="ge">360</display_length>
   </requires>
-  <launchable type="desktop-id">io.github.termust.Termost.desktop</launchable>
+  <launchable type="desktop-id">io.github.termust.Termust.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <kudos>
     <kudo>HiDpiIcon</kudo>
