@@ -14,6 +14,9 @@ y el versionado es [SemVer](https://semver.org/lang/es/).
   local (working tree o index) y se recarga al entrar a la pestaña.
 - En ventanas angostas (<720 px), abrir un archivo oculta el árbol y abrir el
   árbol cierra la columna, sin cambiar la preferencia guardada de `F9`.
+- Vista renderizada de Markdown en la columna de archivos: los `.md` abren como
+  documento (títulos, listas, citas, código, tablas, imágenes locales y links
+  clickeables), con toggle `Vista | Fuente`; el editor externo sigue disponible.
 
 ### Fixed
 
