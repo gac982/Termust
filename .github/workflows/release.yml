@@ -1,0 +1,131 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (for example v1.2.3)"
+        required: true
+        default: "v1.2.3"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    steps:
+      - name: Resolve tag
+        id: vars
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          case "$TAG" in
+            v*) ;;
+            *) echo "tag must start with v" >&2; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Install Rust for SBOM
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Install Rust SDK extension
+        run: |
+          set -euo pipefail
+          flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable//26.08
+
+      - name: Prepare Flatpak sources
+        run: ./scripts/flatpak-src.sh
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: termust-${{ steps.vars.outputs.version }}.flatpak
+          manifest-path: flatpak/io.github.gac982.Termust.yml
+          cache-key: flatpak-${{ steps.vars.outputs.tag }}-${{ github.sha }}
+
+      - name: Generate SBOM, key and checksums
+        env:
+          RUSTUP_TOOLCHAIN: stable
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BUNDLE=$(ls termust-${{ steps.vars.outputs.version }}*.flatpak | head -1)
+          [ -n "$BUNDLE" ] || {
+            echo "Flatpak bundle not found" >&2
+            exit 1
+          }
+          cp "$BUNDLE" "dist/termust-${{ steps.vars.outputs.version }}.flatpak"
+          python3 scripts/gen-sbom.py > \
+            "dist/termust-${{ steps.vars.outputs.version }}.cdx.json"
+
+          if [ -f data/termust-release-key.asc ]; then
+            cp data/termust-release-key.asc dist/termust-release-key.asc
+          else
+            git fetch origin main
+            git show origin/main:data/termust-release-key.asc \
+              > dist/termust-release-key.asc
+          fi
+
+          ( cd dist && sha256sum \
+              "termust-${{ steps.vars.outputs.version }}.flatpak" \
+              "termust-${{ steps.vars.outputs.version }}.cdx.json" \
+              termust-release-key.asc > SHA256SUMS )
+
+      - name: Prepare release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          NOTES=/tmp/release-notes.md
+          if [ -f "release-notes/${{ steps.vars.outputs.tag }}.md" ]; then
+            cp "release-notes/${{ steps.vars.outputs.tag }}.md" "$NOTES"
+          else
+            git fetch origin main
+            if ! git show \
+              "origin/main:release-notes/${{ steps.vars.outputs.tag }}.md" \
+              > "$NOTES" 2>/dev/null; then
+              printf 'Release %s\n' "${{ steps.vars.outputs.tag }}" > "$NOTES"
+            fi
+          fi
+
+          {
+            printf '\n## Checksums\n\n```\n'
+            cat dist/SHA256SUMS
+            printf '```\n'
+          } >> "$NOTES"
+          echo "body=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: Termust ${{ steps.vars.outputs.version }}
+          body_path: ${{ steps.notes.outputs.body }}
+          make_latest: ${{ !contains(steps.vars.outputs.tag, '-rc') }}
+          prerelease: ${{ contains(steps.vars.outputs.tag, '-rc') }}
+          files: |
+            dist/termust-${{ steps.vars.outputs.version }}.flatpak
+            dist/termust-${{ steps.vars.outputs.version }}.cdx.json
+            dist/SHA256SUMS
+            dist/termust-release-key.asc
