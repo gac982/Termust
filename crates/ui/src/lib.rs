@@ -31,6 +31,7 @@ pub struct TerminalView {
     selection: Rc<Cell<Option<Selection>>>,
     bg_alpha: Rc<Cell<f64>>,
     frames: Rc<Cell<u64>>,
+    resize_count: Rc<Cell<usize>>,
     exited: Rc<Cell<bool>>,
     exit_code: Rc<Cell<Option<i32>>>,
     last_output: Rc<Cell<Option<std::time::Instant>>>,
@@ -67,21 +68,48 @@ impl TerminalView {
         let selection: Rc<Cell<Option<Selection>>> = Rc::new(Cell::new(None));
         let bg_alpha = Rc::new(Cell::new(1.0));
         let frames = Rc::new(Cell::new(0));
+        let resize_count = Rc::new(Cell::new(0));
         let exit_code = Rc::new(Cell::new(None));
         let last_output = Rc::new(Cell::new(None));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
         let last_size = Rc::new(Cell::new(GridSize::default()));
+        // El tamaño aplicado al motor/PTY. Durante una animación de layout el
+        // área cambia en cada frame; redimensionar en cada frame manda una
+        // tormenta de SIGWINCH y el shell redibuja el prompt varias veces,
+        // duplicándolo. Se aplica un solo resize cuando el tamaño se estabiliza.
+        let applied_size = Rc::new(Cell::new(GridSize::default()));
+        let pending_size: Rc<Cell<Option<GridSize>>> = Rc::new(Cell::new(None));
+        let resize_timer: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
+        let apply_resize: Rc<dyn Fn(GridSize)> = {
+            let engine = engine.clone();
+            let session = session.clone();
+            let area = area.clone();
+            let last_size = last_size.clone();
+            let applied_size = applied_size.clone();
+            let resize_count = resize_count.clone();
+            Rc::new(move |grid: GridSize| {
+                last_size.set(grid);
+                applied_size.set(grid);
+                engine.borrow_mut().resize(Size::new(grid.cols, grid.rows));
+                let _ = session.borrow_mut().resize(Size::new(grid.cols, grid.rows));
+                resize_count.set(resize_count.get() + 1);
+                area.queue_draw();
+            })
+        };
 
         {
             let renderer = renderer.clone();
             let font = font.clone();
             let theme = theme.clone();
             let engine = engine.clone();
-            let session = session.clone();
             let selection = selection.clone();
             let bg_alpha = bg_alpha.clone();
             let frames = frames.clone();
+            let apply_resize = apply_resize.clone();
+            let applied_size = applied_size.clone();
+            let pending_size = pending_size.clone();
+            let resize_timer = resize_timer.clone();
             let metrics = metrics.clone();
             let last_modes = last_modes.clone();
             let last_size = last_size.clone();
@@ -96,9 +124,36 @@ impl TerminalView {
                 if cols > 0 && rows > 0 && grid != last_size.get() {
                     // Campos con nombre: un tuple (cols, rows) invertido
                     // mandaba todos los clics a la columna equivocada.
-                    last_size.set(grid);
-                    engine.borrow_mut().resize(Size::new(cols, rows));
-                    let _ = session.borrow_mut().resize(Size::new(cols, rows));
+                    if applied_size.get() == GridSize::default() {
+                        // Primer tamaño: aplicarlo ya para que el PTY nazca
+                        // con la grilla correcta.
+                        pending_size.set(None);
+                        if let Some(id) = resize_timer.take() {
+                            id.remove();
+                        }
+                        apply_resize(grid);
+                    } else if grid == applied_size.get() {
+                        pending_size.set(None);
+                        if let Some(id) = resize_timer.take() {
+                            id.remove();
+                        }
+                    } else {
+                        pending_size.set(Some(grid));
+                        if let Some(id) = resize_timer.take() {
+                            id.remove();
+                        }
+                        let apply = apply_resize.clone();
+                        let pending = pending_size.clone();
+                        let timer = resize_timer.clone();
+                        let id =
+                            glib::timeout_add_local_once(Duration::from_millis(150), move || {
+                                timer.set(None);
+                                if let Some(grid) = pending.take() {
+                                    apply(grid);
+                                }
+                            });
+                        resize_timer.set(Some(id));
+                    }
                 }
                 let snapshot = engine.borrow_mut().snapshot();
                 last_modes.set(snapshot.modes);
@@ -427,6 +482,7 @@ impl TerminalView {
             selection,
             bg_alpha,
             frames,
+            resize_count,
             exited,
             exit_code,
             last_output,
@@ -516,6 +572,10 @@ impl TerminalView {
     }
 
     /// Últimas `max` líneas visibles, sin relleno a la derecha.
+    pub fn resize_count(&self) -> usize {
+        self.resize_count.get()
+    }
+
     pub fn recent_lines(&self, max: usize) -> Vec<String> {
         let snapshot = self.engine.borrow_mut().snapshot();
         let mut lines = Vec::with_capacity(snapshot.size.rows);

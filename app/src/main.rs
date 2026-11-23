@@ -2189,6 +2189,63 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_RESIZE_TEST").is_some() {
+        let manager = manager.clone();
+        let viewer = viewer.clone();
+        let file_split = file_split.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(3500), move || {
+            manager.borrow().send_active(
+                b"PS1='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA> '; clear\n",
+            );
+            let manager2 = manager.clone();
+            let viewer2 = viewer.clone();
+            let file_split2 = file_split.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                let before_count = manager2
+                    .borrow()
+                    .active_view()
+                    .map(|view| view.resize_count())
+                    .unwrap_or(0);
+                let before = manager2
+                    .borrow()
+                    .active_view()
+                    .map(|view| view.recent_lines(6))
+                    .unwrap_or_default();
+                viewer2.open_file(std::path::Path::new("Cargo.toml"));
+                file_split2.set_show_sidebar(true);
+                let manager3 = manager2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                    let after_count = manager3
+                        .borrow()
+                        .active_view()
+                        .map(|view| view.resize_count())
+                        .unwrap_or(0);
+                    let after = manager3
+                        .borrow()
+                        .active_view()
+                        .map(|view| view.recent_lines(6))
+                        .unwrap_or_default();
+                    let expected = format!("{}>", "A".repeat(70));
+                    let joined = after.join("");
+                    let delta = after_count.saturating_sub(before_count);
+                    let ok = delta <= 3 && joined == expected && before.join("").ends_with('>');
+                    eprintln!(
+                        "termust-resize-test: resizes={delta} lineas={:?} ok={}",
+                        after, ok
+                    );
+                    if !ok {
+                        eprintln!("termust-resize-test: esperado={expected:?} obtenido={joined:?}");
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
     if std::env::var_os("TERMUST_DIFFVIEW_TEST").is_some() {
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(600), move || {

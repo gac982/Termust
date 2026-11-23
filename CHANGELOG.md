@@ -15,6 +15,12 @@ y el versionado es [SemVer](https://semver.org/lang/es/).
 - En ventanas angostas (<720 px), abrir un archivo oculta el árbol y abrir el
   árbol cierra la columna, sin cambiar la preferencia guardada de `F9`.
 
+### Fixed
+
+- El prompt del terminal ya no se duplica al abrir la columna de archivos: los
+  cambios de tamaño durante la animación se agrupan en un único resize y el
+  shell recibe un solo `SIGWINCH`.
+
 ## [1.0.0] - 2026-11-22
 
 Primera versión estable de Termust: terminal para GNOME con pestañas, paneles,
