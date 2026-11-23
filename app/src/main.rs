@@ -910,6 +910,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let files_split = files_split.clone();
         let tab_sidebar = tab_sidebar.clone();
         let git_panel = git_panel.clone();
+        let window = window.clone();
         let agent_catalog = agent_catalog.clone();
         let agent_bar = agent_bar.clone();
         let agent_icon = agent_icon.clone();
@@ -919,6 +920,11 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let last_followed: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         let last_git_cwd: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
         glib::timeout_add_local(Duration::from_millis(500), move || {
+            if manager.borrow_mut().close_exited() {
+                let window = window.clone();
+                glib::idle_add_local_once(move || window.close());
+                return glib::ControlFlow::Continue;
+            }
             manager.borrow_mut().update_titles();
             manager.borrow().apply_scrollback_budget();
             manager.borrow_mut().update_agents(&agent_catalog);
@@ -2630,6 +2636,20 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     }
                     app3.quit();
                 });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_EXIT_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+            manager.borrow().send_active(b"exit\n");
+            let app = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(3500), move || {
+                eprintln!("termust-exit-test: la app no se cerró FAIL");
+                app.quit();
+                std::process::exit(1);
             });
         });
     }
