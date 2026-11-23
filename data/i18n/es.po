@@ -330,3 +330,6 @@ msgstr "No se pudo calcular el diff"
 
 msgid "Diff truncado"
 msgstr "Diff truncado"
+
+msgid "El archivo no existe"
+msgstr "El archivo no existe"

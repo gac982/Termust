@@ -226,7 +226,17 @@ impl DiffView {
                         .set_text("Archivo binario: no se muestra el diff.");
                     self.status.set_text("");
                 } else if diff.lines.is_empty() {
-                    self.status.set_text("Sin diferencias");
+                    let missing = self
+                        .path
+                        .borrow()
+                        .as_ref()
+                        .map(|path| !path.exists())
+                        .unwrap_or(false);
+                    self.status.set_text(if missing {
+                        "El archivo no existe"
+                    } else {
+                        "Sin diferencias"
+                    });
                 } else {
                     crate::diff_render::fill_diff_buffer(&self.buffer, &diff);
                     if diff.truncated {

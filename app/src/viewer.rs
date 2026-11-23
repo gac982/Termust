@@ -596,6 +596,11 @@ impl Viewer {
         let document = match Document::load(path) {
             Ok(document) => document,
             Err(error) => {
+                self.document.replace(None);
+                self.state.content.borrow_mut().clear();
+                self.state.line_starts.borrow_mut().clear();
+                self.state.parsed.replace(None);
+                self.buffer.set_text("");
                 self.show_status(
                     "No se pudo abrir el archivo",
                     &error.to_string(),

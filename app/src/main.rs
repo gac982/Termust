@@ -123,6 +123,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         ),
         _ => (1024, 700, false),
     };
+    // El hook angosto necesita una ventana real <720 px. GTK4/Wayland no tiene
+    // resize programático, así que el tamaño se fija antes de mapear.
+    let (win_width, win_height, maximized) =
+        if std::env::var("TERMUST_FILECOLUMN_TEST").as_deref() == Ok("narrow") {
+            (700, 600, false)
+        } else {
+            (win_width, win_height, maximized)
+        };
 
     let header = HeaderBar::new();
     let toolbar = ToolbarView::new();
@@ -824,22 +832,22 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 }
                 return glib::Propagation::Proceed;
             }
-            if viewer.is_open() {
-                if keyval == gdk::Key::Escape {
+            let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
+            match viewer_key(
+                viewer.is_open(),
+                viewer.is_showing_file_page(),
+                keyval,
+                ctrl,
+            ) {
+                ViewerKey::Close => {
                     viewer.close();
                     return glib::Propagation::Stop;
                 }
-                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                let search = ctrl
-                    && keyval
-                        .to_unicode()
-                        .map(|ch| ch.eq_ignore_ascii_case(&'f'))
-                        .unwrap_or(false);
-                if search && viewer.is_showing_file_page() {
+                ViewerKey::Search => {
                     viewer.toggle_search();
                     return glib::Propagation::Stop;
                 }
-                return glib::Propagation::Proceed;
+                ViewerKey::Pass => {}
             }
             if git_panel.is_open() {
                 if keyval == gdk::Key::Escape {
@@ -2032,6 +2040,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         "sin texto viejo",
                         viewer3.is_showing_status() && !viewer3.is_showing_text(),
                     );
+                    check("sin buffer viejo", viewer3.buffer_text().is_empty());
                     viewer3.close();
                     check("cierra el visor", !viewer3.is_open());
                     let _ = std::fs::remove_dir_all(&root3);
@@ -2060,6 +2069,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let files_button = files_button.clone();
         let file_panel = file_panel.clone();
         let manager = manager.clone();
+        let window = window.clone();
         glib::timeout_add_local_once(Duration::from_millis(700), move || {
             let root =
                 std::env::temp_dir().join(format!("termust-filecolumn-{}", std::process::id()));
@@ -2092,6 +2102,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 );
                 failed |= !ok;
             };
+            // El arranque puede traer F9 activo desde GSettings; en angosto el
+            // breakpoint colapsa y oculta el sidebar. Forzar el ciclo visible.
+            files_button.set_active(false);
             files_button.set_active(true);
             let _ = file_panel.set_root(&root);
             check("arbol visible", files_split.shows_sidebar());
@@ -2128,6 +2141,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 );
                 viewer2.close();
                 check("columna oculta", !file_split2.shows_sidebar());
+                let focused = gtk::prelude::GtkWindowExt::focus(&window)
+                    .map(|widget| widget.type_().name().to_string())
+                    .unwrap_or_default();
+                check("foco terminal", focused.contains("GtkDrawingArea"));
 
                 if natural_narrow {
                     check("breakpoint angosto", file_split2.is_collapsed());
@@ -2150,6 +2167,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 let opened2 = file_panel2.activate_root("demo2.rs");
                 check("segundo archivo", opened2 && viewer2.is_open());
                 check("angosto oculta arbol", !files_split2.shows_sidebar());
+                check("columna visible angosto", file_split2.shows_sidebar());
                 check(
                     "preferencia intacta",
                     gsettings_with_key("files-panel")
@@ -2219,11 +2237,24 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         view3.line_count() == 0,
                         if ok { "ok" } else { "FAIL" }
                     );
-                    let _ = std::fs::remove_dir_all(&root2);
-                    if !ok {
-                        std::process::exit(1);
-                    }
-                    app3.quit();
+                    view3.load(&root2.join("missing.txt"));
+                    let view4 = view3.clone();
+                    let app4 = app3.clone();
+                    let root3 = root2.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                        let missing = view4.status_text().contains("no existe");
+                        ok &= !view4.is_loading() && view4.line_count() == 0 && missing;
+                        eprintln!(
+                            "termust-diffview-test: faltante={} {}",
+                            missing,
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        let _ = std::fs::remove_dir_all(&root3);
+                        if !ok {
+                            std::process::exit(1);
+                        }
+                        app4.quit();
+                    });
                 });
             });
         });
@@ -3415,4 +3446,51 @@ fn show_about(window: &ApplicationWindow) {
         "https://github.com/termust/termust/issues",
     );
     dialog.present(Some(window));
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ViewerKey {
+    Close,
+    Search,
+    Pass,
+}
+
+/// La columna del visor no es modal: solo consume Escape y Ctrl+F en Archivo.
+/// El resto de las teclas sigue hasta los atajos de la aplicación (F9 incluido).
+fn viewer_key(is_open: bool, showing_file_page: bool, key: gdk::Key, ctrl: bool) -> ViewerKey {
+    if !is_open {
+        return ViewerKey::Pass;
+    }
+    if key == gdk::Key::Escape {
+        return ViewerKey::Close;
+    }
+    let search = ctrl
+        && key
+            .to_unicode()
+            .map(|ch| ch.eq_ignore_ascii_case(&'f'))
+            .unwrap_or(false);
+    if search && showing_file_page {
+        return ViewerKey::Search;
+    }
+    ViewerKey::Pass
+}
+
+#[cfg(test)]
+mod key_gating {
+    use super::*;
+
+    #[test]
+    fn open_viewer_does_not_swallow_app_shortcuts() {
+        assert_eq!(viewer_key(true, true, gdk::Key::F9, false), ViewerKey::Pass);
+        assert_eq!(
+            viewer_key(true, true, gdk::Key::Escape, false),
+            ViewerKey::Close
+        );
+        assert_eq!(viewer_key(true, true, gdk::Key::f, true), ViewerKey::Search);
+        assert_eq!(viewer_key(true, false, gdk::Key::f, true), ViewerKey::Pass);
+        assert_eq!(
+            viewer_key(false, true, gdk::Key::Escape, false),
+            ViewerKey::Pass
+        );
+    }
 }
