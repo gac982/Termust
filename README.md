@@ -4,7 +4,7 @@ Terminal para GNOME escrito en Rust con GTK4 y libadwaita. Pensado para uso
 diario: pestañas y paneles, archivos, visor de código, git local/remoto,
 historial de comandos, temas y detección de agentes.
 
-**Estado:** 1.1.0. Ver `CHANGELOG.md` y `doc/user/` para uso y limitaciones.
+**Estado:** 1.2.0. Ver `CHANGELOG.md` y `doc/user/` para uso y limitaciones.
 
 ## Funciones
 

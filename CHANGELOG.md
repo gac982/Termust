@@ -4,7 +4,10 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
-## [Sin publicar]
+## [1.2.0] - 2026-11-23
+
+Release de tipografía y tamaño del terminal, transparencia acotada al fondo de
+la consola e historial de comandos como modal interno.
 
 ### Added
 
@@ -17,6 +20,9 @@ y el versionado es [SemVer](https://semver.org/lang/es/).
 - La transparencia afecta solo al fondo del terminal: la barra superior y los
   paneles quedan opacos, y el fondo tiene un tope del 80 % para que el texto
   siga siendo legible.
+- El historial de comandos se muestra como modal interno centrado sobre la
+  ventana (búsqueda, flechas, Enter y Esc) en vez de una ventana flotante; se
+  elimina el warning de GDK del popup anterior.
 
 ## [1.1.0] - 2026-11-23
 
