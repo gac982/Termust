@@ -4,6 +4,17 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Added
+
+- Tercera columna de archivos a la derecha del terminal: al abrir un `.md` o un
+  archivo de código desde el árbol, el visor se muestra como columna con
+  pestañas `Archivo | Diff`. El diff del archivo abierto usa el motor de git
+  local (working tree o index) y se recarga al entrar a la pestaña.
+- En ventanas angostas (<720 px), abrir un archivo oculta el árbol y abrir el
+  árbol cierra la columna, sin cambiar la preferencia guardada de `F9`.
+
 ## [1.0.0] - 2026-11-22
 
 Primera versión estable de Termust: terminal para GNOME con pestañas, paneles,

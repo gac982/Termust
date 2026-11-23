@@ -297,3 +297,36 @@ msgstr "Back to terminal"
 
 msgid "Vista general de pestañas"
 msgstr "Tab overview"
+
+msgid "Archivo"
+msgstr "File"
+
+msgid "Diff"
+msgstr "Diff"
+
+msgid "Index"
+msgstr "Index"
+
+msgid "Ver el diff del index"
+msgstr "View the index diff"
+
+msgid "Actualizar diff"
+msgstr "Refresh diff"
+
+msgid "Calculando diff…"
+msgstr "Computing diff…"
+
+msgid "Este archivo no está en un repositorio git"
+msgstr "This file is not in a git repository"
+
+msgid "Sin diferencias"
+msgstr "No differences"
+
+msgid "Archivo binario: no se muestra el diff."
+msgstr "Binary file: the diff is not shown."
+
+msgid "No se pudo calcular el diff"
+msgstr "Could not compute the diff"
+
+msgid "Diff truncado"
+msgstr "Truncated diff"
