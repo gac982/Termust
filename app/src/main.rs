@@ -2049,6 +2049,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     }
 
     if std::env::var_os("TERMUST_FILECOLUMN_TEST").is_some() {
+        let natural_narrow = std::env::var("TERMUST_FILECOLUMN_TEST")
+            .map(|mode| mode == "narrow")
+            .unwrap_or(false);
         let app = app.clone();
         let viewer = viewer.clone();
         let diff_view = diff_view.clone();
@@ -2126,6 +2129,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 viewer2.close();
                 check("columna oculta", !file_split2.shows_sidebar());
 
+                if natural_narrow {
+                    check("breakpoint angosto", file_split2.is_collapsed());
+                }
                 file_split2.set_collapsed(true);
                 check("angosto simulado", file_split2.is_collapsed());
                 files_button2.set_active(true);
