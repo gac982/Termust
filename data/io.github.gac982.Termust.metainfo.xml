@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.termust.Termust</id>
+  <id>io.github.gac982.Termust</id>
   <name>Termust</name>
   <summary>A modern terminal for GNOME</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <developer id="io.github.termust">
+  <developer id="io.github.gac982">
     <name>Termust</name>
   </developer>
   <description>
@@ -16,18 +16,19 @@
     <category>Development</category>
     <category>Utility</category>
   </categories>
-  <url type="homepage">https://github.com/termust/termust</url>
-  <url type="bugtracker">https://github.com/termust/termust/issues</url>
+  <url type="homepage">https://github.com/gac982/Termust</url>
+  <url type="bugtracker">https://github.com/gac982/Termust/issues</url>
   <requires>
     <display_length compare="ge">360</display_length>
   </requires>
-  <launchable type="desktop-id">io.github.termust.Termust.desktop</launchable>
+  <launchable type="desktop-id">io.github.gac982.Termust.desktop</launchable>
   <content_rating type="oars-1.1"/>
   <kudos>
     <kudo>HiDpiIcon</kudo>
     <kudo>ModernToolkit</kudo>
   </kudos>
   <releases>
+    <release version="1.2.3" date="2026-11-23"/>
     <release version="1.2.2" date="2026-11-23"/>
     <release version="1.2.1" date="2026-11-23"/>
     <release version="1.2.0" date="2026-11-23"/>

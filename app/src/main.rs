@@ -2369,7 +2369,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let root = std::env::temp_dir().join(format!("termust-md-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
-            let icon = PathBuf::from("data/icons/hicolor/64x64/apps/io.github.termust.Termust.png");
+            let icon = PathBuf::from("data/icons/hicolor/64x64/apps/io.github.gac982.Termust.png");
             let _ = std::fs::copy(&icon, root.join("icono.png"));
             let md = "\
 # Título principal
@@ -3754,11 +3754,11 @@ fn show_about(window: &ApplicationWindow) {
     dialog.set_developer_name("Termust");
     dialog.set_developers(&["Termust"]);
     dialog.set_license_type(gtk::License::Gpl30);
-    dialog.set_website("https://github.com/termust/termust");
-    dialog.add_link(&i18n::tr("Sitio web"), "https://github.com/termust/termust");
+    dialog.set_website("https://github.com/gac982/Termust");
+    dialog.add_link(&i18n::tr("Sitio web"), "https://github.com/gac982/Termust");
     dialog.add_link(
         &i18n::tr("Reportar un problema"),
-        "https://github.com/termust/termust/issues",
+        "https://github.com/gac982/Termust/issues",
     );
     dialog.present(Some(window));
 }

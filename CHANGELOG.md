@@ -4,6 +4,17 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.2.3] - 2026-11-23
+
+Alineación del app ID con el repositorio público de GitHub antes de la primera
+publicación.
+
+### Changed
+
+- El app ID pasa a `io.github.gac982.Termust` para coincidir con
+  `github.com/gac982/Termust`; Flathub deriva la URL del repositorio a partir
+  del ID. Sin cambios funcionales.
+
 ## [1.2.2] - 2026-11-23
 
 Corrección del identificador de la aplicación antes de la primera publicación
@@ -11,9 +22,9 @@ en GitHub y Flathub.
 
 ### Fixed
 
-- El app ID tenía una `o` de más en el segmento final; ahora es
-  `io.github.termust.Termust` en el escritorio, metainfo, esquema de GSettings,
-  manifiesto de Flatpak, iconos y script de release.
+- El app ID tenía una `o` de más en el segmento final; se corrigió en el
+  escritorio, metainfo, esquema de GSettings, manifiesto de Flatpak, iconos y
+  script de release.
 
 ## [1.2.1] - 2026-11-23
 

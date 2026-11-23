@@ -7,7 +7,7 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
-const APP_ID: &str = "io.github.termust.Termust";
+const APP_ID: &str = "io.github.gac982.Termust";
 
 #[test]
 fn app_id_is_consistent_everywhere() {
@@ -20,10 +20,10 @@ fn app_id_is_consistent_everywhere() {
     );
 
     for rel in [
-        "data/io.github.termust.Termust.desktop",
-        "data/io.github.termust.Termust.metainfo.xml",
-        "data/io.github.termust.Termust.gschema.xml",
-        "flatpak/io.github.termust.Termust.yml",
+        "data/io.github.gac982.Termust.desktop",
+        "data/io.github.gac982.Termust.metainfo.xml",
+        "data/io.github.gac982.Termust.gschema.xml",
+        "flatpak/io.github.gac982.Termust.yml",
     ] {
         let text =
             std::fs::read_to_string(root.join(rel)).unwrap_or_else(|_| panic!("missing {rel}"));
@@ -35,11 +35,11 @@ fn app_id_is_consistent_everywhere() {
 fn desktop_file_launches_termust() {
     let root = repo_root();
     let desktop =
-        std::fs::read_to_string(root.join("data/io.github.termust.Termust.desktop")).unwrap();
+        std::fs::read_to_string(root.join("data/io.github.gac982.Termust.desktop")).unwrap();
     assert!(desktop.lines().any(|l| l == "Exec=termust"));
     assert!(desktop
         .lines()
-        .any(|l| l == "Icon=io.github.termust.Termust"));
+        .any(|l| l == "Icon=io.github.gac982.Termust"));
     assert!(desktop.lines().any(|l| l == "Terminal=false"));
 }
 
@@ -47,7 +47,7 @@ fn desktop_file_launches_termust() {
 fn manifest_uses_gnome_51_and_installs_binary() {
     let root = repo_root();
     let manifest =
-        std::fs::read_to_string(root.join("flatpak/io.github.termust.Termust.yml")).unwrap();
+        std::fs::read_to_string(root.join("flatpak/io.github.gac982.Termust.yml")).unwrap();
     assert!(manifest.contains("runtime-version: \"51\""));
     assert!(manifest.contains("command: termust"));
     assert!(manifest.contains("target/release/termust"));
