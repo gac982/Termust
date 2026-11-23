@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="versión" src="https://img.shields.io/badge/versi%C3%B3n-1.2.0-blue">
+  <img alt="versión" src="https://img.shields.io/badge/versi%C3%B3n-1.2.1-blue">
   <img alt="licencia" src="https://img.shields.io/badge/licencia-GPL--3.0--or--later-green">
   <img alt="plataforma" src="https://img.shields.io/badge/plataforma-Linux%20%7C%20GNOME-4a86cf">
   <img alt="runtime" src="https://img.shields.io/badge/Flatpak-org.gnome.Platform-4a86cf">

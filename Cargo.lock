@@ -1384,7 +1384,7 @@ checksum = "83176759e9416cf81ee66cb6508dbfe9c96f20b8b56265a39917551c23c70964"
 
 [[package]]
 name = "termust-agents"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "regex",
  "serde",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "termust-app"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "cairo-rs",
  "gettext-rs",
@@ -1420,14 +1420,14 @@ dependencies = [
 
 [[package]]
 name = "termust-conformance"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "termust-core"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "serde",
  "toml",
@@ -1435,22 +1435,22 @@ dependencies = [
 
 [[package]]
 name = "termust-fs-local"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "termust-git-local"
-version = "1.2.0"
+version = "1.2.1"
 
 [[package]]
 name = "termust-git-remote"
-version = "1.2.0"
+version = "1.2.1"
 
 [[package]]
 name = "termust-host-exec"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "libc",
  "termust-core",
@@ -1458,14 +1458,14 @@ dependencies = [
 
 [[package]]
 name = "termust-host-pty"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "termust-pty-unix"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "libc",
  "mio",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "termust-render-cairo"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "cairo-rs",
  "pango",
@@ -1486,11 +1486,11 @@ dependencies = [
 
 [[package]]
 name = "termust-render-gl"
-version = "1.2.0"
+version = "1.2.1"
 
 [[package]]
 name = "termust-store"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "termust-syntax"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "streaming-iterator",
  "tree-sitter",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "termust-term-engine"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "alacritty_terminal",
  "termust-core",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "termust-text-render"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "cairo-rs",
  "termust-core",
@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "termust-ui"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "cairo-rs",
  "gtk4",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "termust-vault"
-version = "1.2.0"
+version = "1.2.1"
 dependencies = [
  "argon2",
  "chacha20poly1305",
