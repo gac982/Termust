@@ -4,6 +4,18 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Fixed
+
+- La rueda sobre el prompt recorre el scrollback aunque el shell tenga reporte
+  de ratón activo; ya no se le envía a zle, que redibujaba el prompt y lo hacía
+  parpadear.
+
+### Changed
+
+- El modal del historial muestra título y botón de cerrar.
+
 ## [1.2.0] - 2026-11-23
 
 Release de tipografía y tamaño del terminal, transparencia acotada al fondo de

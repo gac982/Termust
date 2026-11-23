@@ -21,6 +21,23 @@ struct GridSize {
     cols: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WheelTarget {
+    Pty,
+    Scrollback,
+}
+
+/// En el prompt la rueda siempre recorre el scrollback, aunque el shell tenga
+/// reporte de ratón activo: mandársela a zle redibuja el prompt y lo hace
+/// parpadear. En pantalla alternativa (btop, less) la rueda va a la app.
+fn wheel_target(modes: Modes, prompt: PromptState, shift: bool) -> WheelTarget {
+    if modes.reports_mouse() && !shift && (modes.alt_screen || prompt != PromptState::AtPrompt) {
+        WheelTarget::Pty
+    } else {
+        WheelTarget::Scrollback
+    }
+}
+
 pub struct TerminalView {
     area: gtk::DrawingArea,
     engine: Rc<RefCell<Box<dyn TerminalEngine>>>,
@@ -217,7 +234,15 @@ impl TerminalView {
                 let m_modes = modes.get();
                 let state = controller.current_event_state();
                 let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
-                if m_modes.reports_mouse() && !shift {
+                let prompt = engine.borrow().prompt().state;
+                if std::env::var_os("TERMUST_SCROLL_LOG").is_some() {
+                    eprintln!(
+                        "termust-scroll: dy={dy} shift={shift} mouse={} alt={} prompt={prompt:?}",
+                        m_modes.reports_mouse(),
+                        m_modes.alt_screen
+                    );
+                }
+                if wheel_target(m_modes, prompt, shift) == WheelTarget::Pty {
                     let m = metrics.get();
                     if m.width <= 0.0 || m.height <= 0.0 {
                         return glib::Propagation::Stop;
@@ -230,6 +255,9 @@ impl TerminalView {
                     } else {
                         MouseButton::WheelUp
                     };
+                    if std::env::var_os("TERMUST_SCROLL_LOG").is_some() {
+                        eprintln!("termust-scroll: rueda al PTY ({button:?})");
+                    }
                     write_mouse(
                         &session,
                         MouseEventKind::Press,
@@ -241,7 +269,14 @@ impl TerminalView {
                     );
                     return glib::Propagation::Stop;
                 }
-                engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
+                if std::env::var_os("TERMUST_SCROLL_LOG").is_some() {
+                    let before = engine.borrow_mut().snapshot().display_offset;
+                    engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
+                    let after = engine.borrow_mut().snapshot().display_offset;
+                    eprintln!("termust-scroll: scrollback {before} -> {after}");
+                } else {
+                    engine.borrow_mut().scroll(if dy > 0.0 { -3 } else { 3 });
+                }
                 area_scroll.queue_draw();
                 glib::Propagation::Stop
             });
@@ -994,5 +1029,53 @@ mod pointer_tests {
         };
         let (row, col) = clamp_cell(cell_at(1919.0, 1021.0, metrics), grid.rows, grid.cols);
         assert_eq!((row, col), (55, 212));
+    }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::*;
+
+    fn mouse_modes() -> Modes {
+        Modes {
+            mouse_click: true,
+            ..Modes::default()
+        }
+    }
+
+    #[test]
+    fn prompt_wheel_scrolls_back_even_with_mouse_reporting() {
+        assert_eq!(
+            wheel_target(mouse_modes(), PromptState::AtPrompt, false),
+            WheelTarget::Scrollback
+        );
+    }
+
+    #[test]
+    fn alt_screen_wheel_goes_to_the_application() {
+        let modes = Modes {
+            alt_screen: true,
+            ..mouse_modes()
+        };
+        assert_eq!(
+            wheel_target(modes, PromptState::CommandRunning, false),
+            WheelTarget::Pty
+        );
+    }
+
+    #[test]
+    fn command_running_wheel_goes_to_the_application() {
+        assert_eq!(
+            wheel_target(mouse_modes(), PromptState::CommandRunning, false),
+            WheelTarget::Pty
+        );
+    }
+
+    #[test]
+    fn shift_wheel_scrolls_back() {
+        assert_eq!(
+            wheel_target(mouse_modes(), PromptState::CommandRunning, true),
+            WheelTarget::Scrollback
+        );
     }
 }
