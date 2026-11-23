@@ -97,7 +97,7 @@ jobs:
         id: notes
         run: |
           set -euo pipefail
-          NOTES=/tmp/release-notes.md
+          NOTES=dist/RELEASE_NOTES.md
           if [ -f "release-notes/${{ steps.vars.outputs.tag }}.md" ]; then
             cp "release-notes/${{ steps.vars.outputs.tag }}.md" "$NOTES"
           else
