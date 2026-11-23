@@ -80,6 +80,8 @@ struct ViewerState {
     highlighted: Rc<Cell<Option<(usize, usize)>>>,
 }
 
+type PageChanged = Rc<dyn Fn(bool)>;
+
 pub struct Viewer {
     root: gtk::Box,
     header_path: gtk::Label,
@@ -87,9 +89,12 @@ pub struct Viewer {
     spinner: gtk::Spinner,
     close_button: gtk::Button,
     search_toggle: gtk::ToggleButton,
+    outline_button: gtk::MenuButton,
     editor_button: gtk::Button,
     banner: libadwaita::Banner,
     stack: gtk::Stack,
+    pages: gtk::Stack,
+    stack_switcher: gtk::StackSwitcher,
     status: libadwaita::StatusPage,
     text_view: gtk::TextView,
     buffer: gtk::TextBuffer,
@@ -110,6 +115,8 @@ pub struct Viewer {
     highlight_count: Cell<usize>,
     toast: libadwaita::ToastOverlay,
     on_close: RefCell<Option<Rc<dyn Fn()>>>,
+    current_path: RefCell<Option<PathBuf>>,
+    on_page_changed: RefCell<Option<PageChanged>>,
     self_weak: Weak<Self>,
 }
 
@@ -165,6 +172,9 @@ impl Viewer {
             .update_property(&[gtk::accessible::Property::Label("Abrir en editor externo")]);
         editor_button.set_tooltip_text(Some("Abrir en editor externo"));
 
+        let stack_switcher = gtk::StackSwitcher::new();
+        stack_switcher.set_visible(false);
+
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header.set_margin_top(6);
         header.set_margin_bottom(6);
@@ -173,6 +183,7 @@ impl Viewer {
         header.append(&close_button);
         header.append(&header_path);
         header.append(&header_language);
+        header.append(&stack_switcher);
         header.append(&spinner);
         header.append(&search_toggle);
         header.append(&outline_button);
@@ -235,12 +246,21 @@ impl Viewer {
         stack.add_named(&body, Some("text"));
         stack.add_named(&status, Some("status"));
 
+        let file_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        file_page.set_vexpand(true);
+        file_page.append(&banner);
+        file_page.append(&stack);
+
+        let pages = gtk::Stack::new();
+        pages.set_vexpand(true);
+        pages.add_titled(&file_page, Some("file"), "Archivo");
+        stack_switcher.set_stack(Some(&pages));
+
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("termust-viewer");
         root.append(&header);
-        root.append(&banner);
         root.append(&search_box);
-        root.append(&stack);
+        root.append(&pages);
         root.set_visible(false);
 
         let index = Rc::new(RefCell::new(Vec::new()));
@@ -257,9 +277,12 @@ impl Viewer {
             spinner,
             close_button,
             search_toggle,
+            outline_button,
             editor_button,
             banner,
             stack,
+            pages,
+            stack_switcher,
             status,
             text_view,
             buffer,
@@ -287,6 +310,8 @@ impl Viewer {
             highlight_count: Cell::new(0),
             toast,
             on_close: RefCell::new(None),
+            current_path: RefCell::new(None),
+            on_page_changed: RefCell::new(None),
             self_weak: weak.clone(),
         });
         viewer.connect(index);
@@ -295,6 +320,26 @@ impl Viewer {
 
     fn connect(self: &Rc<Self>, index: Rc<RefCell<Vec<usize>>>) {
         let _ = index;
+        {
+            let weak = self.self_weak.clone();
+            self.pages
+                .connect_notify_local(Some("visible-child-name"), move |pages, _| {
+                    let Some(viewer) = weak.upgrade() else {
+                        return;
+                    };
+                    let diff = pages.visible_child_name().as_deref() == Some("diff");
+                    viewer.search_toggle.set_visible(!diff);
+                    viewer.outline_button.set_visible(!diff);
+                    viewer.editor_button.set_visible(!diff);
+                    if diff {
+                        viewer.search_toggle.set_active(false);
+                    }
+                    let callback = viewer.on_page_changed.borrow().clone();
+                    if let Some(callback) = callback {
+                        callback(diff);
+                    }
+                });
+        }
         // Cerrar.
         {
             let weak = self.self_weak.clone();
@@ -440,12 +485,37 @@ impl Viewer {
         self.root.is_visible()
     }
 
+    pub fn is_showing_file_page(&self) -> bool {
+        self.pages.visible_child_name().as_deref() == Some("file")
+    }
+
+    pub fn is_showing_diff(&self) -> bool {
+        self.pages.visible_child_name().as_deref() == Some("diff")
+    }
+
     pub fn is_showing_text(&self) -> bool {
-        self.stack.visible_child_name().as_deref() == Some("text")
+        self.is_showing_file_page() && self.stack.visible_child_name().as_deref() == Some("text")
     }
 
     pub fn is_showing_status(&self) -> bool {
-        self.stack.visible_child_name().as_deref() == Some("status")
+        self.is_showing_file_page() && self.stack.visible_child_name().as_deref() == Some("status")
+    }
+
+    pub fn set_diff_page(&self, widget: &impl IsA<gtk::Widget>) {
+        self.pages.add_titled(widget, Some("diff"), "Diff");
+        self.stack_switcher.set_visible(true);
+    }
+
+    pub fn set_on_page_changed(&self, callback: impl Fn(bool) + 'static) {
+        *self.on_page_changed.borrow_mut() = Some(Rc::new(callback));
+    }
+
+    pub fn show_diff_page(&self) {
+        self.pages.set_visible_child_name("diff");
+    }
+
+    pub fn show_file_page(&self) {
+        self.pages.set_visible_child_name("file");
     }
 
     pub fn language_label(&self) -> String {
@@ -453,10 +523,7 @@ impl Viewer {
     }
 
     pub fn path(&self) -> Option<PathBuf> {
-        self.document
-            .borrow()
-            .as_ref()
-            .map(|document| document.path.clone())
+        self.current_path.borrow().clone()
     }
 
     pub fn line_count(&self) -> usize {
@@ -507,6 +574,8 @@ impl Viewer {
     }
 
     pub fn open_file(self: &Rc<Self>, path: &Path) {
+        self.current_path.replace(Some(path.to_path_buf()));
+        self.pages.set_visible_child_name("file");
         self.cancel_poll();
         self.state.folded.borrow_mut().clear();
         self.state.folds.borrow_mut().clear();
@@ -527,6 +596,11 @@ impl Viewer {
         let document = match Document::load(path) {
             Ok(document) => document,
             Err(error) => {
+                self.document.replace(None);
+                self.state.content.borrow_mut().clear();
+                self.state.line_starts.borrow_mut().clear();
+                self.state.parsed.replace(None);
+                self.buffer.set_text("");
                 self.show_status(
                     "No se pudo abrir el archivo",
                     &error.to_string(),

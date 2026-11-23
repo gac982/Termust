@@ -1,6 +1,7 @@
 //! Panel de git local: status, staging, diff y commit.
 
-use gtk::glib;
+use crate::git_async::listen;
+use crate::git_host::HostGitRunner;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -8,30 +9,11 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
-use termust_git_local::{
-    commit_hint, split_staged, ChangeKind, Diff, DiffLineKind, Git, GitError, GitRunner, Repo,
-    RepoStatus,
-};
+use termust_git_local::{commit_hint, split_staged, ChangeKind, Diff, Git, Repo, RepoStatus};
 use termust_git_remote::{parse_remote_url, Remote, Transport};
 
 const DIFF_CAP: usize = 5_000;
 const DIFF_CAP_LARGE: usize = 20_000;
-
-struct HostGitRunner;
-
-impl GitRunner for HostGitRunner {
-    fn run(
-        &self,
-        cwd: &Path,
-        args: &[std::ffi::OsString],
-    ) -> Result<std::process::Output, GitError> {
-        termust_host_exec::host_command("git", args, Some(cwd))
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .map_err(|error| GitError::Io(format!("no se pudo ejecutar git: {error}")))
-    }
-}
 
 pub struct GitPanel {
     root: gtk::Box,
@@ -168,7 +150,7 @@ impl GitPanel {
             .vexpand(true)
             .child(&diff_view)
             .build();
-        create_diff_tags(&diff_buffer);
+        crate::diff_render::create_diff_tags(&diff_buffer);
 
         let right = gtk::Box::new(gtk::Orientation::Vertical, 0);
         right.append(&diff_header);
@@ -636,27 +618,7 @@ impl GitPanel {
                 .set_text("Archivo binario: no se muestra el diff.");
             return;
         }
-        for line in &diff.lines {
-            let mut end = self.diff_buffer.end_iter();
-            self.diff_buffer
-                .insert(&mut end, &format!("{}\n", line.text));
-            let tag = match line.kind {
-                DiffLineKind::Add => Some("termust-diff-add"),
-                DiffLineKind::Del => Some("termust-diff-del"),
-                DiffLineKind::Hunk => Some("termust-diff-hunk"),
-                DiffLineKind::File => Some("termust-diff-file"),
-                DiffLineKind::Context | DiffLineKind::Meta => None,
-            };
-            if let Some(tag) = tag {
-                let line_number = self.diff_buffer.line_count().saturating_sub(1);
-                if let Some(line_start) = self.diff_buffer.iter_at_line(line_number) {
-                    let mut line_end = line_start;
-                    line_end.forward_to_line_end();
-                    self.diff_buffer
-                        .apply_tag_by_name(tag, &line_start, &line_end);
-                }
-            }
-        }
+        crate::diff_render::fill_diff_buffer(&self.diff_buffer, &diff);
     }
 
     fn stage_selected(self: &Rc<Self>) {
@@ -1231,39 +1193,6 @@ impl GitPanel {
     pub fn set_staged_view(&self, staged: bool) {
         self.staged_toggle.set_active(staged);
     }
-}
-
-fn listen<T: Send + 'static>(
-    weak: Weak<GitPanel>,
-    rx: mpsc::Receiver<T>,
-    apply: impl Fn(&Rc<GitPanel>, T) + 'static,
-) {
-    glib::timeout_add_local(Duration::from_millis(40), move || match rx.try_recv() {
-        Ok(value) => {
-            if let Some(panel) = weak.upgrade() {
-                apply(&panel, value);
-            }
-            glib::ControlFlow::Break
-        }
-        Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-        Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-    });
-}
-
-fn create_diff_tags(buffer: &gtk::TextBuffer) {
-    let add = gtk::TextTag::builder().name("termust-diff-add").build();
-    add.set_foreground(Some("#26a269"));
-    buffer.tag_table().add(&add);
-    let del = gtk::TextTag::builder().name("termust-diff-del").build();
-    del.set_foreground(Some("#c01c28"));
-    buffer.tag_table().add(&del);
-    let hunk = gtk::TextTag::builder().name("termust-diff-hunk").build();
-    hunk.set_foreground(Some("#1c71d8"));
-    buffer.tag_table().add(&hunk);
-    let file = gtk::TextTag::builder().name("termust-diff-file").build();
-    file.set_foreground(Some("#5e5c64"));
-    file.set_weight(600);
-    buffer.tag_table().add(&file);
 }
 
 fn status_class(kind: ChangeKind) -> &'static str {
