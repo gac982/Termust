@@ -4,6 +4,17 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.2.2] - 2026-11-23
+
+Corrección del identificador de la aplicación antes de la primera publicación
+en GitHub y Flathub.
+
+### Fixed
+
+- El app ID pasa de `io.github.termust.Termost` a `io.github.termust.Termust`
+  (el segmento final tenía una `o` de más) en el escritorio, metainfo, esquema
+  de GSettings, manifiesto de Flatpak, iconos y script de release.
+
 ## [1.2.1] - 2026-11-23
 
 Corrección del parpadeo del prompt al usar la rueda y del envío de la rueda a
