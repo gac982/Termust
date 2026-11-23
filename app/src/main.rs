@@ -2273,16 +2273,37 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let file_panel = file_panel.clone();
         let preferences = preferences.clone();
         let history = history.clone();
+        let agent_bar = agent_bar.clone();
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(1200), move || {
             let _ = std::fs::create_dir_all("data/screenshots");
-            let cwd = std::env::current_dir().unwrap_or_default();
+            let repo = std::env::current_dir().unwrap_or_default();
+            let cwd = std::env::temp_dir().join("opencode").join("proyecto");
+            let _ = std::fs::remove_dir_all(&cwd);
+            std::fs::create_dir_all(&cwd).unwrap();
+            for dir in ["app", "crates", "data", "flatpak", "scripts"] {
+                let _ = std::fs::create_dir_all(cwd.join(dir));
+            }
+            for file in [
+                "CHANGELOG.md",
+                "README.md",
+                "Cargo.toml",
+                "LICENSE",
+                "NOTICE",
+                "rust-toolchain.toml",
+            ] {
+                let _ = std::fs::copy(repo.join(file), cwd.join(file));
+            }
+            agent_bar.set_opacity(0.0);
             files_button.set_active(true);
             file_panel.set_follow(false);
             let _ = file_panel.set_root(&cwd);
             viewer.open_file(&cwd.join("CHANGELOG.md"));
             file_split.set_show_sidebar(true);
-            let command = format!("cd '{}'; clear\n", cwd.display());
+            let command = format!(
+                "PS1='\\[\\e[1;32m\\]usuario@equipo\\[\\e[0m\\]:\\[\\e[1;34m\\]~/proyecto\\[\\e[0m\\]$ '; cd '{}'; clear\n",
+                cwd.display()
+            );
             manager.borrow().send_active(command.as_bytes());
 
             let window2 = window.clone();
