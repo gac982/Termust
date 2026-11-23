@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::mpsc;
 use std::time::Duration;
-use termust_syntax::{Document, FoldRegion, HighlightKind, LoadMode, OutlineItem, Parsed};
+use termust_syntax::{
+    Document, FoldRegion, HighlightKind, Language, LoadMode, OutlineItem, Parsed,
+};
 use termust_text_render::Theme;
+
+use crate::markdown::MarkdownPreview;
 
 /// Colores del resaltado derivados del tema del terminal.
 #[derive(Clone, Debug)]
@@ -95,6 +99,11 @@ pub struct Viewer {
     stack: gtk::Stack,
     pages: gtk::Stack,
     stack_switcher: gtk::StackSwitcher,
+    markdown: Rc<MarkdownPreview>,
+    vista_button: gtk::ToggleButton,
+    fuente_button: gtk::ToggleButton,
+    is_markdown: Cell<bool>,
+    rendered: Cell<bool>,
     status: libadwaita::StatusPage,
     text_view: gtk::TextView,
     buffer: gtk::TextBuffer,
@@ -175,6 +184,18 @@ impl Viewer {
         let stack_switcher = gtk::StackSwitcher::new();
         stack_switcher.set_visible(false);
 
+        let vista_button = gtk::ToggleButton::with_label("Vista");
+        vista_button.add_css_class("flat");
+        vista_button.set_tooltip_text(Some("Ver el Markdown como documento"));
+        vista_button.update_property(&[gtk::accessible::Property::Label("Vista de documento")]);
+        vista_button.set_visible(false);
+        let fuente_button = gtk::ToggleButton::with_label("Fuente");
+        fuente_button.add_css_class("flat");
+        fuente_button.set_tooltip_text(Some("Ver el código Markdown"));
+        fuente_button.update_property(&[gtk::accessible::Property::Label("Fuente Markdown")]);
+        fuente_button.set_visible(false);
+        fuente_button.set_group(Some(&vista_button));
+
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         header.set_margin_top(6);
         header.set_margin_bottom(6);
@@ -184,6 +205,8 @@ impl Viewer {
         header.append(&header_path);
         header.append(&header_language);
         header.append(&stack_switcher);
+        header.append(&vista_button);
+        header.append(&fuente_button);
         header.append(&spinner);
         header.append(&search_toggle);
         header.append(&outline_button);
@@ -241,10 +264,12 @@ impl Viewer {
         let status = libadwaita::StatusPage::new();
         status.set_vexpand(true);
 
+        let markdown = MarkdownPreview::new();
         let stack = gtk::Stack::new();
         stack.set_vexpand(true);
         stack.add_named(&body, Some("text"));
         stack.add_named(&status, Some("status"));
+        stack.add_named(markdown.widget(), Some("rendered"));
 
         let file_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         file_page.set_vexpand(true);
@@ -283,6 +308,11 @@ impl Viewer {
             stack,
             pages,
             stack_switcher,
+            markdown,
+            vista_button,
+            fuente_button,
+            is_markdown: Cell::new(false),
+            rendered: Cell::new(false),
             status,
             text_view,
             buffer,
@@ -328,9 +358,15 @@ impl Viewer {
                         return;
                     };
                     let diff = pages.visible_child_name().as_deref() == Some("diff");
-                    viewer.search_toggle.set_visible(!diff);
-                    viewer.outline_button.set_visible(!diff);
-                    viewer.editor_button.set_visible(!diff);
+                    let rendered = viewer.rendered.get();
+                    viewer.search_toggle.set_visible(!diff && !rendered);
+                    viewer.outline_button.set_visible(!diff && !rendered);
+                    viewer
+                        .vista_button
+                        .set_visible(!diff && viewer.is_markdown.get());
+                    viewer
+                        .fuente_button
+                        .set_visible(!diff && viewer.is_markdown.get());
                     if diff {
                         viewer.search_toggle.set_active(false);
                     }
@@ -339,6 +375,37 @@ impl Viewer {
                         callback(diff);
                     }
                 });
+        }
+        {
+            let weak = self.self_weak.clone();
+            self.vista_button.connect_toggled(move |button| {
+                if !button.is_active() {
+                    return;
+                }
+                if let Some(viewer) = weak.upgrade() {
+                    viewer.rendered.set(true);
+                    viewer.stack.set_visible_child_name("rendered");
+                    viewer.search_toggle.set_visible(false);
+                    viewer.outline_button.set_visible(false);
+                    viewer.search_toggle.set_active(false);
+                    viewer.markdown.grab_focus();
+                }
+            });
+        }
+        {
+            let weak = self.self_weak.clone();
+            self.fuente_button.connect_toggled(move |button| {
+                if !button.is_active() {
+                    return;
+                }
+                if let Some(viewer) = weak.upgrade() {
+                    viewer.rendered.set(false);
+                    viewer.stack.set_visible_child_name("text");
+                    viewer.search_toggle.set_visible(true);
+                    viewer.outline_button.set_visible(true);
+                    viewer.text_view.grab_focus();
+                }
+            });
         }
         // Cerrar.
         {
@@ -501,6 +568,31 @@ impl Viewer {
         self.is_showing_file_page() && self.stack.visible_child_name().as_deref() == Some("status")
     }
 
+    pub fn is_showing_rendered(&self) -> bool {
+        self.is_showing_file_page()
+            && self.stack.visible_child_name().as_deref() == Some("rendered")
+    }
+
+    pub fn show_source_page(&self) {
+        self.fuente_button.set_active(true);
+    }
+
+    pub fn show_preview_page(&self) {
+        self.vista_button.set_active(true);
+    }
+
+    pub fn markdown_text(&self) -> String {
+        self.markdown.text()
+    }
+
+    pub fn markdown_counts(&self) -> crate::markdown::MarkdownCounts {
+        self.markdown.counts()
+    }
+
+    pub fn external_editor_visible(&self) -> bool {
+        self.editor_button.is_visible()
+    }
+
     pub fn set_diff_page(&self, widget: &impl IsA<gtk::Widget>) {
         self.pages.add_titled(widget, Some("diff"), "Diff");
         self.stack_switcher.set_visible(true);
@@ -601,6 +693,10 @@ impl Viewer {
                 self.state.line_starts.borrow_mut().clear();
                 self.state.parsed.replace(None);
                 self.buffer.set_text("");
+                self.is_markdown.set(false);
+                self.rendered.set(false);
+                self.vista_button.set_visible(false);
+                self.fuente_button.set_visible(false);
                 self.show_status(
                     "No se pudo abrir el archivo",
                     &error.to_string(),
@@ -624,6 +720,10 @@ impl Viewer {
 
         match document.mode {
             LoadMode::Binary => {
+                self.is_markdown.set(false);
+                self.rendered.set(false);
+                self.vista_button.set_visible(false);
+                self.fuente_button.set_visible(false);
                 self.show_status(
                     "Archivo binario",
                     "No se muestra contenido binario en el visor.",
@@ -653,10 +753,35 @@ impl Viewer {
         }
 
         self.buffer.set_text(&document.content);
-        self.stack.set_visible_child_name("text");
+        let is_markdown = document.language == Language::Markdown
+            && document.content.len() <= crate::markdown::MAX_RENDER_BYTES;
+        self.is_markdown.set(is_markdown);
+        self.vista_button.set_visible(is_markdown);
+        self.fuente_button.set_visible(is_markdown);
+        if is_markdown {
+            let base = document.path.parent().unwrap_or(Path::new("."));
+            self.markdown.render(&document.content, base);
+            self.rendered.set(true);
+            self.stack.set_visible_child_name("rendered");
+            self.search_toggle.set_visible(false);
+            self.outline_button.set_visible(false);
+            self.search_toggle.set_active(false);
+            self.vista_button.set_active(true);
+        } else {
+            self.rendered.set(false);
+            self.stack.set_visible_child_name("text");
+            self.search_toggle.set_visible(true);
+            self.outline_button.set_visible(true);
+            self.vista_button.set_active(false);
+            self.fuente_button.set_active(false);
+        }
         self.root.set_visible(true);
         self.visible.set(true);
-        self.text_view.grab_focus();
+        if is_markdown {
+            self.markdown.grab_focus();
+        } else {
+            self.text_view.grab_focus();
+        }
         self.text_view
             .scroll_to_iter(&mut self.buffer.start_iter(), 0.0, false, 0.0, 0.0);
         self.gutter.queue_draw();
@@ -883,6 +1008,9 @@ impl Viewer {
     }
 
     pub fn toggle_search(&self) {
+        if self.rendered.get() && self.is_markdown.get() {
+            self.fuente_button.set_active(true);
+        }
         self.search_toggle
             .set_active(!self.search_toggle.is_active());
     }

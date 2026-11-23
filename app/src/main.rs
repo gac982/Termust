@@ -7,6 +7,7 @@ mod git_host;
 mod git_panel;
 mod history;
 mod i18n;
+mod markdown;
 mod preferences;
 mod remotes;
 mod tab_sidebar;
@@ -2182,6 +2183,91 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     if failed2 { "FAIL" } else { "ok" }
                 );
                 if failed2 {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_MARKDOWN_TEST").is_some() {
+        let viewer = viewer.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(500), move || {
+            let root = std::env::temp_dir().join(format!("termust-md-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let icon = PathBuf::from("data/icons/hicolor/64x64/apps/io.github.termust.Termost.png");
+            let _ = std::fs::copy(&icon, root.join("icono.png"));
+            let md = "\
+# Título principal
+
+Un párrafo con **negrita**, *itálica*, `código` y un [link](https://example.com).
+
+## Lista
+
+- uno
+- dos
+  - anidado
+
+> una cita
+
+```rust
+fn main() {}
+```
+
+| Col | Valor |
+| --- | --- |
+| a | 1 |
+| b | 2 |
+
+![logo](icono.png)
+";
+            std::fs::write(root.join("guia.md"), md).unwrap();
+            viewer.open_file(&root.join("guia.md"));
+            let viewer2 = viewer.clone();
+            let root2 = root.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(300), move || {
+                let mut failed = false;
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-markdown-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed |= !ok;
+                };
+                let counts = viewer2.markdown_counts();
+                let text = viewer2.markdown_text();
+                check("abre renderizado", viewer2.is_showing_rendered());
+                check(
+                    "documento sin marcas",
+                    text.contains("Título principal") && !text.contains("# Título principal"),
+                );
+                check("títulos", counts.headings >= 2);
+                check("tabla", counts.tables == 1);
+                check("link", counts.links >= 1);
+                check("imagen", counts.images == 1);
+                check("código", counts.code_blocks >= 1);
+                check("editor externo visible", viewer2.external_editor_visible());
+                viewer2.show_source_page();
+                check(
+                    "fuente disponible",
+                    viewer2.is_showing_text()
+                        && viewer2.buffer_text().contains("# Título principal"),
+                );
+                check(
+                    "editor externo en fuente",
+                    viewer2.external_editor_visible(),
+                );
+                viewer2.show_preview_page();
+                check("vuelve a vista", viewer2.is_showing_rendered());
+                let _ = std::fs::remove_dir_all(&root2);
+                eprintln!(
+                    "termust-markdown-test: {}",
+                    if failed { "FAIL" } else { "ok" }
+                );
+                if failed {
                     std::process::exit(1);
                 }
                 app2.quit();
