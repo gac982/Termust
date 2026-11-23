@@ -34,7 +34,7 @@ fn no_doc_or_assets_tracked() {
 
 #[test]
 fn markdown_allowlist() {
-    let allowed = ["README.md", "CHANGELOG.md"];
+    let allowed = ["README.md", "README.en.md", "CHANGELOG.md"];
     for f in tracked_files() {
         if f.ends_with(".md") {
             assert!(
