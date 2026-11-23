@@ -397,9 +397,21 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
         });
     }
+    let file_split = libadwaita::OverlaySplitView::new();
+    file_split.set_sidebar(Some(viewer.widget()));
+    file_split.set_content(Some(&toast_overlay));
+    file_split.set_sidebar_position(gtk::PackType::End);
+    file_split.set_min_sidebar_width(300.0);
+    file_split.set_max_sidebar_width(760.0);
+    file_split.set_sidebar_width_fraction(0.35);
+    file_split.set_show_sidebar(false);
+    viewer.widget().set_hexpand(true);
+    viewer.widget().set_vexpand(true);
     {
         let manager = Rc::downgrade(&manager);
+        let file_split = file_split.clone();
         viewer.set_on_close(move || {
+            file_split.set_show_sidebar(false);
             if let Some(manager) = manager.upgrade() {
                 if let Ok(manager) = manager.try_borrow() {
                     manager.focus_active();
@@ -423,17 +435,33 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             }
         });
     }
+    let suppress_files_persist = Rc::new(Cell::new(false));
+    let hide_files_panel_session: Rc<dyn Fn()> = {
+        let suppress = suppress_files_persist.clone();
+        let files_button = files_button.clone();
+        Rc::new(move || {
+            suppress.set(true);
+            files_button.set_active(false);
+            suppress.set(false);
+        })
+    };
     let file_panel = files::FilePanel::new(&home, toast_overlay.clone());
     {
         let viewer = viewer.clone();
         let git_panel = git_panel.clone();
         let git_button = git_button.clone();
+        let file_split = file_split.clone();
+        let hide_files_panel_session = hide_files_panel_session.clone();
         file_panel.set_open_handler(move |path| {
             git_panel.close();
             if git_button.is_active() {
                 git_button.set_active(false);
             }
             viewer.open_file(&path);
+            file_split.set_show_sidebar(true);
+            if file_split.is_collapsed() {
+                hide_files_panel_session();
+            }
         });
     }
     if files_visible {
@@ -441,7 +469,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     }
     let files_split = libadwaita::OverlaySplitView::new();
     files_split.set_sidebar(Some(file_panel.widget()));
-    files_split.set_content(Some(&toast_overlay));
+    files_split.set_content(Some(&file_split));
     files_split.set_sidebar_position(gtk::PackType::Start);
     files_split.set_min_sidebar_width(220.0);
     files_split.set_max_sidebar_width(420.0);
@@ -470,9 +498,6 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&outer_split));
     overlay.add_overlay(&tab_overview);
-    viewer.widget().set_halign(gtk::Align::Fill);
-    viewer.widget().set_valign(gtk::Align::Fill);
-    overlay.add_overlay(viewer.widget());
     git_panel.widget().set_halign(gtk::Align::Fill);
     git_panel.widget().set_valign(gtk::Align::Fill);
     overlay.add_overlay(git_panel.widget());
@@ -498,15 +523,19 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let breakpoint = libadwaita::Breakpoint::new(condition);
         let files = files_split.clone();
         let outer = outer_split.clone();
+        let file = file_split.clone();
         breakpoint.connect_apply(move |_| {
             files.set_collapsed(true);
             outer.set_collapsed(true);
+            file.set_collapsed(true);
         });
         let files = files_split.clone();
         let outer = outer_split.clone();
+        let file = file_split.clone();
         breakpoint.connect_unapply(move |_| {
             files.set_collapsed(false);
             outer.set_collapsed(false);
+            file.set_collapsed(false);
         });
         window.add_breakpoint(breakpoint);
     }
@@ -515,16 +544,23 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let split = files_split.clone();
         let settings = gsettings_with_key("files-panel");
         let panel = file_panel.clone();
+        let viewer = viewer.clone();
+        let suppress = suppress_files_persist.clone();
         files_button.connect_toggled(move |button| {
             let active = button.is_active();
             split.set_show_sidebar(active);
             if active {
                 panel.activate();
+                if split.is_collapsed() && viewer.is_open() {
+                    viewer.close();
+                }
             } else {
                 panel.deactivate();
             }
-            if let Some(settings) = &settings {
-                let _ = settings.set_boolean("files-panel", active);
+            if !suppress.get() {
+                if let Some(settings) = &settings {
+                    let _ = settings.set_boolean("files-panel", active);
+                }
             }
         });
     }
@@ -776,6 +812,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let tab_overview = tab_overview.clone();
         let git_button = git_button.clone();
         let git_panel = git_panel.clone();
+        let files_split = files_split.clone();
+        let hide_files_panel_session = hide_files_panel_session.clone();
         let key = gtk::EventControllerKey::new();
         key.set_propagation_phase(gtk::PropagationPhase::Capture);
         key.connect_key_pressed(move |_, keyval, _, state| {
@@ -809,6 +847,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     return glib::Propagation::Stop;
                 }
                 return glib::Propagation::Proceed;
+            }
+            if files_split.is_collapsed()
+                && files_split.shows_sidebar()
+                && keyval == gdk::Key::Escape
+            {
+                hide_files_panel_session();
+                return glib::Propagation::Stop;
             }
             if history.is_open() {
                 return glib::Propagation::Proceed;
@@ -2003,6 +2048,123 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_FILECOLUMN_TEST").is_some() {
+        let app = app.clone();
+        let viewer = viewer.clone();
+        let diff_view = diff_view.clone();
+        let file_split = file_split.clone();
+        let files_split = files_split.clone();
+        let files_button = files_button.clone();
+        let file_panel = file_panel.clone();
+        let manager = manager.clone();
+        glib::timeout_add_local_once(Duration::from_millis(700), move || {
+            let root =
+                std::env::temp_dir().join(format!("termust-filecolumn-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let git = |args: &[&str]| {
+                let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+                termust_host_exec::host_command("git", &args, Some(&root))
+                    .output()
+                    .unwrap()
+            };
+            git(&["init", "-q"]);
+            git(&["config", "user.email", "t@t"]);
+            git(&["config", "user.name", "t"]);
+            std::fs::write(root.join("demo.rs"), "fn main() {}\n").unwrap();
+            std::fs::write(root.join("demo2.rs"), "fn other() {}\n").unwrap();
+            git(&["add", "demo.rs"]);
+            git(&["commit", "-qm", "init"]);
+            std::fs::write(
+                root.join("demo.rs"),
+                "fn main() {\n    println!(\"hola\");\n}\n",
+            )
+            .unwrap();
+
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-filecolumn-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            files_button.set_active(true);
+            let _ = file_panel.set_root(&root);
+            check("arbol visible", files_split.shows_sidebar());
+            let opened = file_panel.activate_root("demo.rs");
+            check("archivo abierto", opened && viewer.is_open());
+            check("columna visible", file_split.shows_sidebar());
+            check("terminal visible", manager.borrow().tab_view().width() > 0);
+            check(
+                "arranca en archivo",
+                viewer.is_showing_file_page() && !viewer.is_showing_diff(),
+            );
+            viewer.show_diff_page();
+
+            let app2 = app.clone();
+            let viewer2 = viewer.clone();
+            let diff_view2 = diff_view.clone();
+            let file_split2 = file_split.clone();
+            let files_split2 = files_split.clone();
+            let files_button2 = files_button.clone();
+            let file_panel2 = file_panel.clone();
+            let root2 = root.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                let mut failed2 = failed;
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-filecolumn-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed2 |= !ok;
+                };
+                check(
+                    "diff cargado",
+                    diff_view2.line_count() > 0 && diff_view2.diff_text().contains("+"),
+                );
+                viewer2.close();
+                check("columna oculta", !file_split2.shows_sidebar());
+
+                file_split2.set_collapsed(true);
+                check("angosto simulado", file_split2.is_collapsed());
+                files_button2.set_active(true);
+                check("arbol visible angosto", files_split2.shows_sidebar());
+                let before = gsettings_with_key("files-panel")
+                    .map(|settings| settings.boolean("files-panel"))
+                    .unwrap_or(false);
+                let _ = file_panel2.set_root(&root2);
+                check(
+                    "demo2 listado",
+                    file_panel2
+                        .visible_names()
+                        .iter()
+                        .any(|name| name == "demo2.rs"),
+                );
+                let opened2 = file_panel2.activate_root("demo2.rs");
+                check("segundo archivo", opened2 && viewer2.is_open());
+                check("angosto oculta arbol", !files_split2.shows_sidebar());
+                check(
+                    "preferencia intacta",
+                    gsettings_with_key("files-panel")
+                        .map(|settings| settings.boolean("files-panel"))
+                        .unwrap_or(false)
+                        == before,
+                );
+
+                let _ = std::fs::remove_dir_all(&root2);
+                eprintln!(
+                    "termust-filecolumn-test: {}",
+                    if failed2 { "FAIL" } else { "ok" }
+                );
+                if failed2 {
+                    std::process::exit(1);
+                }
+                app2.quit();
+            });
+        });
+    }
+
     if std::env::var_os("TERMUST_DIFFVIEW_TEST").is_some() {
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(600), move || {
@@ -2676,6 +2838,11 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             check(
                 "sidebar recibe el puntero",
                 !sidebar.contains("AdwTabOverview"),
+            );
+            let right = chain(width * 0.9, height * 0.5);
+            check(
+                "visor cerrado no targetable",
+                !right.contains("GtkTextView"),
             );
             check("overview cerrado no targetable", !tab_overview.can_target());
             overview_button.set_active(true);
