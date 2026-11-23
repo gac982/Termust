@@ -1,6 +1,8 @@
 mod appearance;
 mod diff_render;
 mod files;
+mod git_async;
+mod git_host;
 mod git_panel;
 mod history;
 mod i18n;

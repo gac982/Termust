@@ -1,6 +1,7 @@
 //! Panel de git local: status, staging, diff y commit.
 
-use gtk::glib;
+use crate::git_async::listen;
+use crate::git_host::HostGitRunner;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -8,29 +9,11 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
-use termust_git_local::{
-    commit_hint, split_staged, ChangeKind, Diff, Git, GitError, GitRunner, Repo, RepoStatus,
-};
+use termust_git_local::{commit_hint, split_staged, ChangeKind, Diff, Git, Repo, RepoStatus};
 use termust_git_remote::{parse_remote_url, Remote, Transport};
 
 const DIFF_CAP: usize = 5_000;
 const DIFF_CAP_LARGE: usize = 20_000;
-
-struct HostGitRunner;
-
-impl GitRunner for HostGitRunner {
-    fn run(
-        &self,
-        cwd: &Path,
-        args: &[std::ffi::OsString],
-    ) -> Result<std::process::Output, GitError> {
-        termust_host_exec::host_command("git", args, Some(cwd))
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .map_err(|error| GitError::Io(format!("no se pudo ejecutar git: {error}")))
-    }
-}
 
 pub struct GitPanel {
     root: gtk::Box,
@@ -1210,23 +1193,6 @@ impl GitPanel {
     pub fn set_staged_view(&self, staged: bool) {
         self.staged_toggle.set_active(staged);
     }
-}
-
-fn listen<T: Send + 'static>(
-    weak: Weak<GitPanel>,
-    rx: mpsc::Receiver<T>,
-    apply: impl Fn(&Rc<GitPanel>, T) + 'static,
-) {
-    glib::timeout_add_local(Duration::from_millis(40), move || match rx.try_recv() {
-        Ok(value) => {
-            if let Some(panel) = weak.upgrade() {
-                apply(&panel, value);
-            }
-            glib::ControlFlow::Break
-        }
-        Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-        Err(mpsc::TryRecvError::Disconnected) => glib::ControlFlow::Break,
-    });
 }
 
 fn status_class(kind: ChangeKind) -> &'static str {
