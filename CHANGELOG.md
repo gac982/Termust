@@ -11,9 +11,9 @@ en GitHub y Flathub.
 
 ### Fixed
 
-- El app ID pasa de `io.github.termust.Termost` a `io.github.termust.Termust`
-  (el segmento final tenía una `o` de más) en el escritorio, metainfo, esquema
-  de GSettings, manifiesto de Flatpak, iconos y script de release.
+- El app ID tenía una `o` de más en el segmento final; ahora es
+  `io.github.termust.Termust` en el escritorio, metainfo, esquema de GSettings,
+  manifiesto de Flatpak, iconos y script de release.
 
 ## [1.2.1] - 2026-11-23
 
