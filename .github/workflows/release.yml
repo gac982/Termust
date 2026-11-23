@@ -56,7 +56,9 @@ jobs:
           flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable//26.08
 
       - name: Prepare Flatpak sources
-        run: ./scripts/flatpak-src.sh
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          ./scripts/flatpak-src.sh
 
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
