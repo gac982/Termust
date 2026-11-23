@@ -10,6 +10,7 @@ mod i18n;
 mod markdown;
 mod preferences;
 mod remotes;
+mod screenshot;
 mod tab_sidebar;
 mod tabs;
 mod viewer;
@@ -129,6 +130,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let (win_width, win_height, maximized) =
         if std::env::var("TERMUST_FILECOLUMN_TEST").as_deref() == Ok("narrow") {
             (700, 600, false)
+        } else if std::env::var_os("TERMUST_SCREENSHOT_TEST").is_some() {
+            (1600, 950, false)
         } else {
             (win_width, win_height, maximized)
         };
@@ -2257,6 +2260,83 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     std::process::exit(1);
                 }
                 app2.quit();
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_SCREENSHOT_TEST").is_some() {
+        let window = window.clone();
+        let manager = manager.clone();
+        let viewer = viewer.clone();
+        let file_split = file_split.clone();
+        let files_button = files_button.clone();
+        let file_panel = file_panel.clone();
+        let preferences = preferences.clone();
+        let history = history.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+            let _ = std::fs::create_dir_all("data/screenshots");
+            let cwd = std::env::current_dir().unwrap_or_default();
+            files_button.set_active(true);
+            file_panel.set_follow(false);
+            let _ = file_panel.set_root(&cwd);
+            viewer.open_file(&cwd.join("CHANGELOG.md"));
+            file_split.set_show_sidebar(true);
+            let command = format!("cd '{}'; clear\n", cwd.display());
+            manager.borrow().send_active(command.as_bytes());
+
+            let window2 = window.clone();
+            let preferences2 = preferences.clone();
+            let manager2 = manager.clone();
+            let history2 = history.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1600), move || {
+                let main_ok =
+                    screenshot::save_widget_png(&window2, "data/screenshots/terminal.png");
+                eprintln!("termust-screenshot: terminal={main_ok}");
+                preferences2.present(&window2);
+
+                let preferences3 = preferences2.clone();
+                let manager3 = manager2.clone();
+                let history3 = history2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                    let prefs_ok = screenshot::save_widget_png(
+                        preferences3.dialog(),
+                        "data/screenshots/preferences.png",
+                    );
+                    eprintln!("termust-screenshot: preferences={prefs_ok}");
+                    preferences3.close();
+
+                    let anchor = manager3
+                        .borrow()
+                        .active_view()
+                        .map(|view| view.widget().clone());
+                    let Some(anchor) = anchor else {
+                        eprintln!("termust-screenshot: sin terminal FAIL");
+                        app3.quit();
+                        return;
+                    };
+                    history3.seed_demo(&[
+                        "cargo build --release",
+                        "git status --short",
+                        "cargo test --workspace",
+                        "git log --oneline -5",
+                        "btop",
+                    ]);
+                    history3.open(&anchor, Rc::new(|_| {}));
+                    let history4 = history3.clone();
+                    let app4 = app3.clone();
+                    glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                        let history_ok = screenshot::save_widget_png(
+                            history4.dialog(),
+                            "data/screenshots/history.png",
+                        );
+                        eprintln!("termust-screenshot: history={history_ok}");
+                        history4.close();
+                        app4.quit();
+                    });
+                });
             });
         });
     }

@@ -61,12 +61,24 @@ impl HistoryController {
                 .child(&list)
                 .build();
 
+            let title = gtk::Label::new(Some("Historial de comandos"));
+            title.add_css_class("heading");
+            title.set_xalign(0.0);
+            title.set_hexpand(true);
+            let close = gtk::Button::from_icon_name("window-close-symbolic");
+            close.add_css_class("flat");
+            close.set_tooltip_text(Some("Cerrar (Esc)"));
+            let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            header.append(&title);
+            header.append(&close);
+
             let container = gtk::Box::new(gtk::Orientation::Vertical, 6);
             container.set_margin_top(8);
             container.set_margin_bottom(8);
             container.set_margin_start(8);
             container.set_margin_end(8);
             container.set_size_request(560, 320);
+            container.append(&header);
             container.append(&entry);
             container.append(&scroll);
 
@@ -145,6 +157,14 @@ impl HistoryController {
                     }
                 });
             }
+            {
+                let weak = weak.clone();
+                close.connect_clicked(move |_| {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.close();
+                    }
+                });
+            }
 
             Self {
                 index,
@@ -166,6 +186,31 @@ impl HistoryController {
 
     pub fn is_open(&self) -> bool {
         self.open.get()
+    }
+
+    pub fn dialog(&self) -> &libadwaita::Dialog {
+        &self.dialog
+    }
+
+    /// Reemplaza el índice con comandos de ejemplo para capturas públicas.
+    pub fn seed_demo(&self, commands: &[&str]) {
+        {
+            let mut index = self.index.borrow_mut();
+            index.clear();
+            for (position, command) in commands.iter().enumerate() {
+                index.insert(HistoryEntry::new(
+                    *command,
+                    PathBuf::from("/home/usuario/proyecto"),
+                    position as u64,
+                    Some(0),
+                    HistorySource::Session,
+                ));
+            }
+        }
+        self.imported.set(true);
+        if self.open.get() {
+            self.refresh();
+        }
     }
 
     pub fn open(&self, anchor: &impl IsA<gtk::Widget>, insert: InsertFn) {
