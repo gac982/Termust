@@ -8,6 +8,7 @@ mod remotes;
 mod tab_sidebar;
 mod tabs;
 mod viewer;
+mod work_area;
 
 use appearance::{Appearance, AUTO_THEME};
 use git_panel::GitPanel;
@@ -154,9 +155,6 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .default_height(win_height)
         .content(&toolbar)
         .build();
-    if maximized {
-        window.maximize();
-    }
 
     let appearance = Appearance::load(&home, termust_ui::system_monospace_font());
     let spawner = match UnixPtySpawner::new() {
@@ -2805,6 +2803,61 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     }
 
     window.present();
+    // Maximizar después de presentar: antes de mapear, algunos compositores
+    // ignoran el pedido y la ventana restaurada queda sin maximizar.
+    work_area::install(window.upcast_ref());
+    if maximized {
+        window.maximize();
+    }
+
+    if let Some(mode) = std::env::var_os("TERMUST_WORKAREA_TEST") {
+        let restore = mode.to_string_lossy() == "restore";
+        let window = window.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(900), move || {
+            if !restore {
+                window.maximize();
+            }
+            let window = window.clone();
+            let app = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                let Some(monitor) = work_area::monitor_of(window.upcast_ref()) else {
+                    eprintln!("termust-workarea-test: sin monitor FAIL");
+                    std::process::exit(1);
+                };
+                let geometry = monitor.geometry();
+                let reserved = work_area::measured_reservation(window.upcast_ref());
+                let expected = std::env::var("TERMUST_EXPECT_RESERVED")
+                    .ok()
+                    .and_then(|value| value.parse::<i32>().ok());
+                let mut ok = window.is_maximized()
+                    && window.width() == geometry.width()
+                    && window.height() + reserved == geometry.height()
+                    && reserved >= 0;
+                if let Some(expected) = expected {
+                    ok &= reserved == expected;
+                }
+                eprintln!(
+                    "termust-workarea-test: modo={} maximized={} monitor={}x{} escala={} reserva_vertical={}px ventana={}x{} fondo={} {}",
+                    if restore { "restore" } else { "fresh" },
+                    window.is_maximized(),
+                    geometry.width(),
+                    geometry.height(),
+                    monitor.scale_factor(),
+                    reserved,
+                    window.width(),
+                    window.height(),
+                    window.height() + reserved,
+                    if ok { "ok" } else { "FAIL" }
+                );
+                if !ok {
+                    std::process::exit(1);
+                }
+                app.quit();
+            });
+        });
+    }
+
     window
 }
 
