@@ -1,4 +1,5 @@
 mod appearance;
+mod diff_render;
 mod files;
 mod git_panel;
 mod history;
