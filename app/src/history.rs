@@ -1,6 +1,6 @@
 use gtk::glib;
-use gtk::prelude::*;
 use gtk4 as gtk;
+use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
@@ -27,7 +27,7 @@ pub type InsertFn = Rc<dyn Fn(String)>;
 pub struct HistoryController {
     index: Rc<RefCell<HistoryIndex>>,
     home: PathBuf,
-    popover: gtk::Popover,
+    dialog: libadwaita::Dialog,
     entry: gtk::SearchEntry,
     list: gtk::ListBox,
     commands: RefCell<Vec<String>>,
@@ -70,11 +70,11 @@ impl HistoryController {
             container.append(&entry);
             container.append(&scroll);
 
-            let popover = gtk::Popover::new();
-            popover.set_autohide(std::env::var_os("TERMUST_HISTORY_TEST").is_none());
-            popover.set_has_arrow(false);
-            popover.set_position(gtk::PositionType::Bottom);
-            popover.set_child(Some(&container));
+            let dialog = libadwaita::Dialog::new();
+            dialog.set_title("Historial de comandos");
+            dialog.set_content_width(560);
+            dialog.set_content_height(420);
+            dialog.set_child(Some(&container));
 
             {
                 let weak = weak.clone();
@@ -139,7 +139,7 @@ impl HistoryController {
 
             {
                 let weak = weak.clone();
-                popover.connect_closed(move |_| {
+                dialog.connect_closed(move |_| {
                     if let Some(controller) = weak.upgrade() {
                         controller.on_closed();
                     }
@@ -149,7 +149,7 @@ impl HistoryController {
             Self {
                 index,
                 home,
-                popover,
+                dialog,
                 entry,
                 list,
                 commands: RefCell::new(Vec::new()),
@@ -172,18 +172,16 @@ impl HistoryController {
         if self.open.get() {
             return;
         }
+        let Some(window) = anchor.root().and_downcast::<gtk::Window>() else {
+            return;
+        };
         self.ensure_import();
         *self.insert.borrow_mut() = Some(insert);
         *self.anchor.borrow_mut() = Some(anchor.clone().upcast());
         self.entry.set_text("");
         self.refresh();
-        self.popover.set_parent(anchor);
-        // En el hook de test la ventana puede no estar activa y GTK cerraría
-        // el popover al instante; se valida el controlador sin mapearlo.
-        if std::env::var_os("TERMUST_HISTORY_TEST").is_none() {
-            self.popover.popup();
-        }
         self.open.set(true);
+        self.dialog.present(Some(&window));
         self.entry.grab_focus();
     }
 
@@ -191,7 +189,7 @@ impl HistoryController {
         if !self.open.get() {
             return;
         }
-        self.popover.popdown();
+        self.dialog.close();
         self.on_closed();
     }
 
@@ -217,9 +215,6 @@ impl HistoryController {
         }
         if let Some(source) = self.debounce.take() {
             source.remove();
-        }
-        if self.popover.parent().is_some() {
-            self.popover.unparent();
         }
         let anchor = self.anchor.borrow_mut().take();
         self.insert.borrow_mut().take();
