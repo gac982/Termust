@@ -4,14 +4,16 @@ Terminal para GNOME escrito en Rust con GTK4 y libadwaita. Pensado para uso
 diario: pestañas y paneles, archivos, visor de código, git local/remoto,
 historial de comandos, temas y detección de agentes.
 
-**Estado:** 1.0.0. Ver `CHANGELOG.md` y `doc/user/` para uso y limitaciones.
+**Estado:** 1.1.0. Ver `CHANGELOG.md` y `doc/user/` para uso y limitaciones.
 
 ## Funciones
 
 - Terminal VT con bash/zsh, OSC 7/133/633, colores 256/truecolor y scrollback.
 - Pestañas horizontales o verticales, splits hasta 4 paneles y sesión restaurable.
-- Panel de archivos lazy, visor de solo lectura con tree-sitter (14 lenguajes,
-  folds, outline, búsqueda).
+- Panel de archivos lazy y columna de archivos con diff de git por archivo;
+  visor de solo lectura con tree-sitter (14 lenguajes, folds, outline, búsqueda).
+- Vista de Markdown como documento (títulos, listas, código, tablas, imágenes
+  locales y links) con toggle Vista/Fuente y editor externo.
 - Git local (status/stage/unstage/diff/commit) y remotos (SSH/HTTPS) con vault
   cifrado; nunca force push.
 - Historial de comandos, temas (37 paletas), transparencia, zoom y preferencias.

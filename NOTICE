@@ -1,4 +1,4 @@
-Termust 1.0.0
+Termust 1.1.0
 
 Copyright (C) 2026 Termust contributors
 Licensed under GPL-3.0-or-later. See LICENSE.
@@ -79,6 +79,7 @@ This product includes third-party software:
   pango-sys 0.22.11
   pangocairo 0.22.9
   pangocairo-sys 0.22.9
+  pulldown-cmark 0.13.6
   redox_syscall 0.5.18
   rsqlite-vfs 0.2.0
   rusqlite 0.43.0
@@ -180,6 +181,7 @@ This product includes third-party software:
   toml_parser 1.1.5+spec-1.1.0
   toml_writer 1.2.0+spec-1.1.0
   typenum 1.20.1
+  unicase 2.10.0
   unicode-width 0.2.3
   universal-hash 0.6.1
   windows-link 0.2.1
