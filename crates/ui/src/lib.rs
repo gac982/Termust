@@ -15,6 +15,12 @@ use termust_core::pty::{PtyEvent, PtySession};
 use termust_core::terminal::{CommandRecord, Modes, PromptState, Size, Snapshot, TerminalEngine};
 use termust_text_render::{CellMetrics, FontSpec, PaintOpts, Selection, TextRenderer, Theme};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct GridSize {
+    rows: usize,
+    cols: usize,
+}
+
 pub struct TerminalView {
     area: gtk::DrawingArea,
     engine: Rc<RefCell<Box<dyn TerminalEngine>>>,
@@ -65,7 +71,7 @@ impl TerminalView {
         let last_output = Rc::new(Cell::new(None));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
-        let last_size = Rc::new(Cell::new((0usize, 0usize)));
+        let last_size = Rc::new(Cell::new(GridSize::default()));
 
         {
             let renderer = renderer.clone();
@@ -86,8 +92,11 @@ impl TerminalView {
                 metrics.set(m);
                 let cols = m.cols_for_width(w as f64);
                 let rows = m.rows_for_height(h as f64);
-                if cols > 0 && rows > 0 && (cols, rows) != last_size.get() {
-                    last_size.set((cols, rows));
+                let grid = GridSize { rows, cols };
+                if cols > 0 && rows > 0 && grid != last_size.get() {
+                    // Campos con nombre: un tuple (cols, rows) invertido
+                    // mandaba todos los clics a la columna equivocada.
+                    last_size.set(grid);
                     engine.borrow_mut().resize(Size::new(cols, rows));
                     let _ = session.borrow_mut().resize(Size::new(cols, rows));
                 }
@@ -159,8 +168,8 @@ impl TerminalView {
                         return glib::Propagation::Stop;
                     }
                     let (x, y) = pointer.get();
-                    let (rows, cols) = last_size.get();
-                    let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                    let grid = last_size.get();
+                    let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                     let button = if dy > 0.0 {
                         MouseButton::WheelDown
                     } else {
@@ -185,6 +194,7 @@ impl TerminalView {
         }
 
         {
+            let engine = engine.clone();
             let session = session.clone();
             let modes = last_modes.clone();
             let selection = selection.clone();
@@ -216,13 +226,22 @@ impl TerminalView {
                     let state = gesture.current_event_state();
                     let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
                     let m = metrics.get();
-                    let (rows, cols) = last_size.get();
+                    let grid = last_size.get();
                     if m.width <= 0.0 || m.height <= 0.0 {
                         return;
                     }
-                    let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                    let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                     let m_modes = modes.get();
                     let button = gesture.current_button();
+                    if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
+                        eprintln!(
+                            "termust-mouse: press button={button} row={row} col={col} x={x:.1} y={y:.1} cw={:.2} ch={:.2} grid={:?} snap={:?} modes={m_modes:?} shift={shift}",
+                            m.width,
+                            m.height,
+                            grid,
+                            engine.borrow_mut().snapshot().size
+                        );
+                    }
                     if m_modes.reports_mouse() && !shift {
                         selection.set(None);
                         anchor.set(None);
@@ -272,10 +291,10 @@ impl TerminalView {
                 click.connect_released(move |gesture, _n_press, x, y| {
                     pointer.set((x, y));
                     let m = metrics.get();
-                    let (rows, cols) = last_size.get();
+                    let grid = last_size.get();
                     if let Some(b) = pressed_button.get() {
                         let state = gesture.current_event_state();
-                        let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                        let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                         write_mouse(
                             &session,
                             MouseEventKind::Release,
@@ -312,7 +331,7 @@ impl TerminalView {
                 motion.connect_motion(move |controller, x, y| {
                     pointer.set((x, y));
                     let m = metrics.get();
-                    let (rows, cols) = last_size.get();
+                    let grid = last_size.get();
                     if m.width <= 0.0 || m.height <= 0.0 {
                         return;
                     }
@@ -322,7 +341,7 @@ impl TerminalView {
                     let tracking = m_modes.mouse_motion
                         || (m_modes.mouse_drag && pressed_button.get().is_some());
                     if m_modes.reports_mouse() && !shift && tracking {
-                        let (row, col) = clamp_cell(cell_at(x, y, m), rows, cols);
+                        let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                         let button = pressed_button.get().unwrap_or(MouseButton::None);
                         write_mouse(
                             &session,
@@ -345,7 +364,7 @@ impl TerminalView {
                         return;
                     }
                     moved.set(true);
-                    let end = clamp_cell(cell_at(x, y, m), rows, cols);
+                    let end = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                     selection.set(Some(Selection { start, end }));
                     area_input.queue_draw();
                 });
@@ -536,6 +555,27 @@ impl TerminalView {
             return false;
         }
         self.engine.borrow_mut().history_ready()
+    }
+
+    pub fn modes(&self) -> Modes {
+        self.engine.borrow_mut().snapshot().modes
+    }
+
+    /// Simula un clic directo al PTY (diagnóstico de mouse, no es un atajo).
+    pub fn debug_mouse_click(&self, col: usize, row: usize) {
+        let modes = self.modes();
+        for kind in [MouseEventKind::Press, MouseEventKind::Release] {
+            let bytes = encode_mouse(
+                kind,
+                MouseButton::Left,
+                col + 1,
+                row + 1,
+                MouseMods::default(),
+                modes.sgr_mouse,
+                modes.utf8_mouse,
+            );
+            let _ = self.session.borrow_mut().write(&bytes);
+        }
     }
 
     pub fn history_size(&self) -> usize {
@@ -870,5 +910,25 @@ mod tests {
         };
         assert_eq!(copy_selection(&snap, Some(sel)).as_deref(), Some("hello"));
         assert_eq!(copy_selection(&snap, None), None);
+    }
+}
+
+#[cfg(test)]
+mod pointer_tests {
+    use super::*;
+
+    #[test]
+    fn mouse_cell_maps_to_the_real_grid() {
+        let metrics = CellMetrics {
+            width: 9.0,
+            height: 18.0,
+            baseline: 14.0,
+        };
+        let grid = GridSize {
+            rows: 56,
+            cols: 213,
+        };
+        let (row, col) = clamp_cell(cell_at(1919.0, 1021.0, metrics), grid.rows, grid.cols);
+        assert_eq!((row, col), (55, 212));
     }
 }
