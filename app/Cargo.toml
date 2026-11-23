@@ -31,3 +31,4 @@ termust-agents.workspace = true
 termust-syntax.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true
+pulldown-cmark = { version = "0.13.6", default-features = false }

@@ -143,3 +143,26 @@ window.termust-transparent paned > separator {
 .termust-agent-exited {
   color: #c01c28;
 }
+
+/* Vista renderizada de Markdown. */
+.termust-markdown {
+  background-color: @view_bg_color;
+}
+
+.termust-markdown textview {
+  background-color: @view_bg_color;
+}
+
+.termust-markdown textview text {
+  font-family: inherit;
+}
+
+.termust-md-table {
+  border: 1px solid alpha(currentColor, 0.12);
+  border-radius: 6px;
+}
+
+.termust-md-table label.termust-md-th {
+  font-weight: 700;
+  background-color: alpha(currentColor, 0.06);
+}
