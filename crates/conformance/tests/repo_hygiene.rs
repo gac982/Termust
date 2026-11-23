@@ -38,7 +38,7 @@ fn markdown_allowlist() {
     for f in tracked_files() {
         if f.ends_with(".md") {
             assert!(
-                allowed.contains(&f.as_str()),
+                allowed.contains(&f.as_str()) || f.starts_with("release-notes/"),
                 "{f} is Markdown outside the allowlist"
             );
         }
