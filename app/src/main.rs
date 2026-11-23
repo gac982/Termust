@@ -444,6 +444,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     tab_overview.set_view(Some(manager.borrow().tab_view()));
     tab_overview.set_enable_new_tab(false);
     tab_overview.set_enable_search(false);
+    // Cerrado sigue siendo un overlay visible que, si es targetable, se come
+    // todos los clics del terminal y de los sidebars.
+    tab_overview.set_can_target(false);
+    tab_overview.set_focusable(false);
 
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&outer_split));
@@ -462,6 +466,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
         let button = overview_button.clone();
         tab_overview.connect_notify_local(Some("open"), move |overview, _| {
+            overview.set_can_target(overview.is_open());
+            overview.set_focusable(overview.is_open());
             if button.is_active() != overview.is_open() {
                 button.set_active(overview.is_open());
             }
@@ -2521,6 +2527,105 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         if overview { "ok" } else { "FAIL" }
                     );
                     if !overview {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_POINTER_TEST").is_some() {
+        let window = window.clone();
+        let files_button = files_button.clone();
+        let overview_button = overview_button.clone();
+        let tab_overview = tab_overview.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+            files_button.set_active(true);
+            let mut failed = false;
+            let mut check = |label: &str, ok: bool| {
+                eprintln!(
+                    "termust-pointer-test: {label} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                failed |= !ok;
+            };
+            let chain = |x: f64, y: f64| {
+                window
+                    .pick(x, y, gtk::PickFlags::DEFAULT)
+                    .map(|widget| {
+                        let mut names = Vec::new();
+                        let mut current = Some(widget);
+                        while let Some(widget) = current {
+                            names.push(widget.type_().name().to_string());
+                            current = widget.parent();
+                        }
+                        names.join(" < ")
+                    })
+                    .unwrap_or_else(|| "ninguno".into())
+            };
+            let width = window.width() as f64;
+            let height = window.height() as f64;
+            let terminal = chain(width * 0.7, height * 0.5);
+            let sidebar = chain(width * 0.12, height * 0.5);
+            check(
+                "terminal recibe el puntero",
+                terminal.contains("GtkDrawingArea") && !terminal.contains("AdwTabOverview"),
+            );
+            check(
+                "sidebar recibe el puntero",
+                !sidebar.contains("AdwTabOverview"),
+            );
+            check("overview cerrado no targetable", !tab_overview.can_target());
+            overview_button.set_active(true);
+            let window2 = window.clone();
+            let overview_button2 = overview_button.clone();
+            let tab_overview2 = tab_overview.clone();
+            let app2 = app.clone();
+            let mut failed2 = failed;
+            glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                let mut check = |label: &str, ok: bool| {
+                    eprintln!(
+                        "termust-pointer-test: {label} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    failed2 |= !ok;
+                };
+                check(
+                    "overview abierto es targetable",
+                    tab_overview2.can_target() && tab_overview2.is_open(),
+                );
+                overview_button2.set_active(false);
+                let window3 = window2.clone();
+                let tab_overview3 = tab_overview2.clone();
+                let app3 = app2.clone();
+                let mut failed3 = failed2;
+                glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                    let mut check = |label: &str, ok: bool| {
+                        eprintln!(
+                            "termust-pointer-test: {label} {}",
+                            if ok { "ok" } else { "FAIL" }
+                        );
+                        failed3 |= !ok;
+                    };
+                    let chain = window3
+                        .pick(
+                            window3.width() as f64 * 0.7,
+                            window3.height() as f64 * 0.5,
+                            gtk::PickFlags::DEFAULT,
+                        )
+                        .map(|widget| widget.type_().name().to_string())
+                        .unwrap_or_else(|| "ninguno".into());
+                    check(
+                        "overview cerrado devuelve el clic al terminal",
+                        !chain.contains("AdwTabOverview") && !tab_overview3.can_target(),
+                    );
+                    eprintln!(
+                        "termust-pointer-test: {}",
+                        if failed3 { "FAIL" } else { "ok" }
+                    );
+                    if failed3 {
                         std::process::exit(1);
                     }
                     app3.quit();
