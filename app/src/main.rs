@@ -1,5 +1,6 @@
 mod appearance;
 mod diff_render;
+mod diff_view;
 mod files;
 mod git_async;
 mod git_host;
@@ -1960,6 +1961,64 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         if failed3 { "FAIL" } else { "ok" }
                     );
                     if failed3 {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_DIFFVIEW_TEST").is_some() {
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(600), move || {
+            let root =
+                std::env::temp_dir().join(format!("termust-diffview-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let git = |args: &[&str]| {
+                let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+                termust_host_exec::host_command("git", &args, Some(&root))
+                    .output()
+                    .unwrap()
+            };
+            git(&["init", "-q"]);
+            git(&["config", "user.email", "t@t"]);
+            git(&["config", "user.name", "t"]);
+            std::fs::write(root.join("demo.txt"), "uno\n").unwrap();
+            git(&["add", "demo.txt"]);
+            git(&["commit", "-qm", "init"]);
+            std::fs::write(root.join("demo.txt"), "uno\ndos\n").unwrap();
+
+            let view = diff_view::DiffView::new();
+            view.load(&root.join("demo.txt"));
+            let view2 = view.clone();
+            let root2 = root.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                let mut ok = !view2.is_loading()
+                    && view2.line_count() >= 2
+                    && view2.diff_text().contains("+dos")
+                    && !view2.is_binary()
+                    && view2.status_text().is_empty();
+                eprintln!(
+                    "termust-diffview-test: unstaged={} lineas={} ok={}",
+                    view2.diff_text().contains("+dos"),
+                    view2.line_count(),
+                    ok
+                );
+                view2.set_staged(true);
+                let view3 = view2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(900), move || {
+                    ok &= !view3.is_loading() && view3.line_count() == 0;
+                    eprintln!(
+                        "termust-diffview-test: index_vacio={} {}",
+                        view3.line_count() == 0,
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    let _ = std::fs::remove_dir_all(&root2);
+                    if !ok {
                         std::process::exit(1);
                     }
                     app3.quit();
