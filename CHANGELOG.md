@@ -4,6 +4,26 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.3.1] - 2026-11-24
+
+Corrección del historial de comandos para bash y zsh, y backup automático de
+configuración, sesión y datos de la app.
+
+### Fixed
+
+- El comando aparece en el historial al empezar a ejecutarse, incluso si sigue
+  corriendo (por ejemplo `ping`) o se interrumpe con Ctrl+C.
+- Los comandos de la sesión se muestran antes que el historial importado de la
+  shell; el modal se refresca cuando llegan comandos nuevos y mantiene los más
+  recientes primero.
+- La integración de bash captura el comando desde `PS0`; zsh sigue usando
+  `preexec`.
+
+### Added
+
+- Backup automático en `~/.local/share/termust/backups` de settings, sesión,
+  vault y temas importados, conservando las últimas 5 copias.
+
 ## [1.3.0] - 2026-11-24
 
 Interfaz multiidioma completa, con inglés como idioma fuente y un selector de
