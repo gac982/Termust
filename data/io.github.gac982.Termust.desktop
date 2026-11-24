@@ -6,6 +6,6 @@ Exec=termust
 Icon=io.github.gac982.Termust
 Terminal=false
 Type=Application
-Categories=System;TerminalEmulator;Utility;
+Categories=System;TerminalEmulator;
 Keywords=terminal;shell;console;rust;
 StartupNotify=true

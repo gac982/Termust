@@ -4,6 +4,24 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.3.0] - 2026-11-24
+
+Interfaz multiidioma completa, con inglés como idioma fuente y un selector de
+idioma en Preferencias.
+
+### Added
+
+- Inglés como idioma fuente y traducción completa al español; cualquier locale
+  sin catálogo cae a inglés.
+- Preferencias → General → Language con `System`, `English` y `Español`; el
+  cambio se aplica al reiniciar.
+- `TERMUST_LANG` para forzar el idioma en pruebas y capturas.
+
+### Fixed
+
+- El historial muestra primero los comandos ejecutados más recientemente;
+  elegir uno viejo ya no lo mueve al principio.
+
 ## [1.2.3] - 2026-11-23
 
 Alineación del app ID con el repositorio público de GitHub antes de la primera

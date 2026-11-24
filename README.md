@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="versión" src="https://img.shields.io/badge/versi%C3%B3n-1.2.3-blue">
+  <img alt="versión" src="https://img.shields.io/badge/versi%C3%B3n-1.3.0-blue">
   <img alt="licencia" src="https://img.shields.io/badge/licencia-GPL--3.0--or--later-green">
   <img alt="plataforma" src="https://img.shields.io/badge/plataforma-Linux%20%7C%20GNOME-4a86cf">
   <img alt="runtime" src="https://img.shields.io/badge/Flatpak-org.gnome.Platform-4a86cf">
@@ -23,6 +23,9 @@ Termust es una terminal para GNOME pensada para el uso diario: pestañas y
 paneles, árbol de archivos, visor de código, vista renderizada de Markdown,
 git local y remoto, historial de comandos, temas, tipografía configurable y
 detección de agentes.
+
+La interfaz está disponible en español e inglés. Sigue el idioma del sistema y
+se puede cambiar en Preferencias → General; el cambio se aplica al reiniciar.
 
 ## Capturas
 
@@ -97,10 +100,10 @@ renderizada de Markdown.*
 
 ### Flatpak (bundle)
 
-Descargá `termust-1.2.3.flatpak` desde la página de releases y ejecutá:
+Descargá `termust-1.3.0.flatpak` desde la página de releases y ejecutá:
 
 ```sh
-flatpak install --user ./termust-1.2.3.flatpak
+flatpak install --user ./termust-1.3.0.flatpak
 flatpak run io.github.gac982.Termust
 ```
 
