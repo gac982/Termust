@@ -298,6 +298,7 @@ impl TerminalView {
             let press_px = Rc::new(Cell::new((0.0f64, 0.0f64)));
             let pressed_button: Rc<Cell<Option<MouseButton>>> = Rc::new(Cell::new(None));
             let moved = Rc::new(Cell::new(false));
+            let engine_log = engine.clone();
 
             let click = gtk::GestureClick::new();
             {
@@ -406,7 +407,12 @@ impl TerminalView {
             let motion = gtk::EventControllerMotion::new();
             {
                 let pointer = pointer.clone();
-                motion.connect_enter(move |_, x, y| pointer.set((x, y)));
+                motion.connect_enter(move |_, x, y| {
+                    pointer.set((x, y));
+                    if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
+                        eprintln!("termust-mouse-enter: x={x:.1} y={y:.1}");
+                    }
+                });
             }
             {
                 let session = session.clone();
@@ -432,6 +438,20 @@ impl TerminalView {
                     let m_modes = modes.get();
                     let tracking = m_modes.mouse_motion
                         || (m_modes.mouse_drag && pressed_button.get().is_some());
+                    if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
+                        let mut engine = engine_log.borrow_mut();
+                        let snap = engine.snapshot();
+                        let prompt = engine.prompt();
+                        eprintln!(
+                            "termust-mouse-motion: x={x:.1} y={y:.1} modes={m_modes:?} tracking={tracking} pressed={:?} prompt={:?} offset={} history={} selection={} moved={}",
+                            pressed_button.get(),
+                            prompt.state,
+                            snap.display_offset,
+                            snap.history_size,
+                            selection.get().is_some(),
+                            moved.get()
+                        );
+                    }
                     if m_modes.reports_mouse() && !shift && tracking {
                         let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                         let button = pressed_button.get().unwrap_or(MouseButton::None);
