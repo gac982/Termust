@@ -4,6 +4,17 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.3.2] - 2026-11-24
+
+Corrección de persistencia de sesión para que las pruebas y los arranques de
+depuración no pisen las pestañas reales.
+
+### Fixed
+
+- `--no-restore` y los hooks de test ya no guardan la sesión; no pueden
+  reemplazar las pestañas, paneles y directorios del usuario.
+- La sesión se sigue guardando normalmente al usar la app y al cerrar.
+
 ## [1.3.1] - 2026-11-24
 
 Corrección del historial de comandos para bash y zsh, y backup automático de
