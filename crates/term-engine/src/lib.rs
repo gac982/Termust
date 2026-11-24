@@ -135,10 +135,21 @@ impl TerminalEngine for AlacrittyEngine {
                     }
                 }
                 crate::osc::OscEvent::Command(text) => {
+                    let text = text.trim().to_string();
+                    let cwd = self.osc.cwd().cloned().unwrap_or_default();
+                    let timestamp = now_secs();
+                    if !text.is_empty() {
+                        self.history.push(CommandRecord {
+                            text: text.clone(),
+                            cwd: cwd.clone(),
+                            timestamp,
+                            exit_code: None,
+                        });
+                    }
                     self.pending = Some(PendingCommand {
                         text,
-                        cwd: self.osc.cwd().cloned().unwrap_or_default(),
-                        timestamp: now_secs(),
+                        cwd,
+                        timestamp,
                         started: false,
                     });
                 }
@@ -396,9 +407,11 @@ mod tests {
         e.feed(b"\x1b]633;E;cargo test\x07\x1b]133;C\x07");
         e.feed(b"\x1b]133;D;3\x07");
         let history = e.take_history();
-        assert_eq!(history.len(), 1);
+        assert_eq!(history.len(), 2);
         assert_eq!(history[0].text, "cargo test");
-        assert_eq!(history[0].exit_code, Some(3));
+        assert_eq!(history[0].exit_code, None);
+        assert_eq!(history[1].text, "cargo test");
+        assert_eq!(history[1].exit_code, Some(3));
         assert!(e.take_history().is_empty());
     }
 
@@ -408,9 +421,11 @@ mod tests {
         e.feed(b"\x1b]633;E;ls -la\x07\x1b]133;C\x07");
         e.feed(b"\x1b]133;D;1\x07");
         let history = e.take_history();
-        assert_eq!(history.len(), 1);
+        assert_eq!(history.len(), 2);
         assert_eq!(history[0].text, "ls -la");
-        assert_eq!(history[0].exit_code, Some(1));
+        assert_eq!(history[0].exit_code, None);
+        assert_eq!(history[1].text, "ls -la");
+        assert_eq!(history[1].exit_code, Some(1));
     }
 
     #[test]

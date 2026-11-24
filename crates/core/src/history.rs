@@ -127,19 +127,27 @@ impl HistoryIndex {
             return Vec::new();
         }
         let query = query.trim().to_lowercase();
-        let mut matches: Vec<(u8, u64, &HistoryEntry)> = Vec::new();
+        let mut matches: Vec<(u8, u8, u64, &HistoryEntry)> = Vec::new();
         for entry in &self.entries {
             let text = entry.text.to_lowercase();
             let Some(score) = score(&text, &query) else {
                 continue;
             };
-            matches.push((score, entry.sequence, entry));
+            let rank = match entry.source {
+                HistorySource::Session => 0,
+                HistorySource::Imported => 1,
+            };
+            matches.push((score, rank, entry.sequence, entry));
         }
-        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
+        matches.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| b.2.cmp(&a.2))
+        });
         matches
             .into_iter()
             .take(limit)
-            .map(|(_, _, entry)| entry.clone())
+            .map(|(_, _, _, entry)| entry.clone())
             .collect()
     }
 
@@ -366,6 +374,16 @@ mod tests {
             results.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(),
             vec!["three", "two", "one"]
         );
+    }
+
+    #[test]
+    fn imported_entries_sort_below_session() {
+        let mut index = HistoryIndex::new();
+        index.insert(imported("old imported"));
+        index.insert(session("new session", "/"));
+        let results = index.search("", 10);
+        assert_eq!(results[0].text, "new session");
+        assert_eq!(results[1].text, "old imported");
     }
 
     #[test]

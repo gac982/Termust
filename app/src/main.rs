@@ -1,4 +1,5 @@
 mod appearance;
+mod backup;
 mod diff_render;
 mod diff_view;
 mod files;
@@ -90,6 +91,13 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"));
+    let testing = std::env::vars_os().any(|(key, _)| {
+        let key = key.to_string_lossy();
+        key.starts_with("TERMUST_") && key.ends_with("_TEST")
+    });
+    if !testing && std::env::var_os("TERMUST_NO_BACKUP").is_none() {
+        backup::backup_state(&home);
+    }
     let dev_tabs = initial_tabs() > 1;
     let seed = std::env::var_os("TERMUST_SESSION_SEED").is_some();
     let verify = std::env::var_os("TERMUST_SESSION_VERIFY").is_some();
@@ -978,6 +986,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     {
         let manager = manager.clone();
         let history_index = history_index.clone();
+        let history = history.clone();
         let file_panel = file_panel.clone();
         let files_split = files_split.clone();
         let tab_sidebar = tab_sidebar.clone();
@@ -1049,6 +1058,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         HistorySource::Session,
                     ));
                 }
+                drop(index);
+                history.refresh_if_open();
             }
             glib::ControlFlow::Continue
         });
@@ -1349,6 +1360,61 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     eprintln!(
                         "termust-history-ready: inicial={initial} con_texto={} tras_ctrl_c={again} {}",
                         !typed,
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    if !ok {
+                        std::process::exit(1);
+                    }
+                    app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_HISTORY_PENDING_TEST").is_some() {
+        let manager = manager.clone();
+        let history = history.clone();
+        let history_index = history_index.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(2000), move || {
+            let anchor = manager
+                .borrow()
+                .active_view()
+                .map(|view| view.widget().clone());
+            let Some(anchor) = anchor else {
+                eprintln!("termust-history-pending: FAIL sin vista");
+                std::process::exit(1);
+            };
+            let insert: history::InsertFn = Rc::new(|_| {});
+            history.open(&anchor, insert);
+            manager.borrow().send_active(b"sleep 5\n");
+            let history2 = history.clone();
+            let history_index2 = history_index.clone();
+            let manager2 = manager.clone();
+            let app2 = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                let rows = history2.row_texts();
+                let started = rows.first().is_some_and(|row| row == "sleep 5")
+                    && history_index2
+                        .borrow()
+                        .search("sleep 5", 5)
+                        .iter()
+                        .any(|entry| entry.text == "sleep 5" && entry.exit_code.is_none());
+                manager2.borrow().send_active(&[3]);
+                let history3 = history2.clone();
+                let history_index3 = history_index2.clone();
+                let app3 = app2.clone();
+                glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+                    let rows = history3.row_texts();
+                    let finished = rows.first().is_some_and(|row| row == "sleep 5")
+                        && history_index3
+                            .borrow()
+                            .search("sleep 5", 5)
+                            .iter()
+                            .any(|entry| entry.text == "sleep 5" && entry.exit_code.is_some());
+                    let ok = started && finished;
+                    eprintln!(
+                        "termust-history-pending: started={started} finished={finished} {}",
                         if ok { "ok" } else { "FAIL" }
                     );
                     if !ok {

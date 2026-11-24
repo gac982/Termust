@@ -255,6 +255,17 @@ impl HistoryController {
         self.commands.borrow().len()
     }
 
+    pub fn row_texts(&self) -> Vec<String> {
+        self.commands.borrow().clone()
+    }
+
+    /// Refresca la lista si el modal está abierto.
+    pub fn refresh_if_open(&self) {
+        if self.open.get() {
+            self.refresh();
+        }
+    }
+
     fn on_closed(&self) {
         if !self.open.replace(false) {
             return;

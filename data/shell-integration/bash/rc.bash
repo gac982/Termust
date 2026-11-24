@@ -11,9 +11,14 @@ __termust_osc7() {
 
 __termust_marker=$'\033]133;B\007'
 
+# PS0 se expande después de leer un comando y antes de ejecutarlo. En ese
+# momento `history 1` ya contiene el comando actual, incluso si después se
+# interrumpe con Ctrl+C.
 __termust_ps0() {
-    local cmd
-    cmd=$(HISTTIMEFORMAT= fc -ln -1 2>/dev/null)
+    local line cmd
+    line=$(HISTTIMEFORMAT= history 1 2>/dev/null)
+    line=${line#"${line%%[![:space:]]*}"}
+    cmd=${line#*[[:space:]]}
     cmd=${cmd#"${cmd%%[![:space:]]*}"}
     if [ -n "$cmd" ]; then
         printf '\033]633;E;%s\007\033]133;C\007' "$cmd"
@@ -29,11 +34,12 @@ __termust_precmd() {
         *"$__termust_marker"*) ;;
         *) PS1="${PS1}\[${__termust_marker}\]" ;;
     esac
+    return "$ec"
 }
 
 case "${PROMPT_COMMAND-}" in
     *__termust_precmd*) ;;
-    *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__termust_precmd" ;;
+    *) PROMPT_COMMAND="__termust_precmd${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
 esac
 
 PS0="${PS0-}"'$(__termust_ps0)'
