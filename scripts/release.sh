@@ -28,4 +28,7 @@ if flatpak remote-info --user termust-origin "$APP_ID" >/dev/null 2>&1; then
     flatpak install --user -y --reinstall termust-origin "$APP_ID" >/dev/null 2>&1 ||
         echo "AVISO: no se pudo realinear el origen a termust-origin" >&2
 fi
+flatpak uninstall --user -y "$APP_ID.Debug" "$APP_ID.Locale" >/dev/null 2>&1 || true
+flatpak remote-delete --user termust1-origin >/dev/null 2>&1 || true
+flatpak remote-delete --user debug-origin >/dev/null 2>&1 || true
 echo "release: $DIST/termust-$VERSION.flatpak"
