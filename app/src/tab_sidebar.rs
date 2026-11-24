@@ -8,6 +8,7 @@ use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
+use crate::i18n;
 use crate::tabs::TabManager;
 
 pub struct TabSidebar {
@@ -156,15 +157,15 @@ impl TabSidebar {
 
             if summary.attention {
                 let attention = gtk::Image::from_icon_name("dialog-warning-symbolic");
-                attention.set_tooltip_text(Some("La última orden falló"));
+                attention.set_tooltip_text(Some(&i18n::tr("The last command failed")));
                 attention.add_css_class("error");
                 content.append(&attention);
             }
 
             let close = gtk::Button::from_icon_name("window-close-symbolic");
             close.add_css_class("flat");
-            close.set_tooltip_text(Some("Cerrar pestaña"));
-            close.update_property(&[gtk::accessible::Property::Label("Cerrar pestaña")]);
+            close.set_tooltip_text(Some(&i18n::tr("Close tab")));
+            close.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Close tab"))]);
             close.set_valign(gtk::Align::Center);
             {
                 let manager = self.manager.clone();

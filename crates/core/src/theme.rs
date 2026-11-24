@@ -64,9 +64,9 @@ pub enum ThemeError {
 impl std::fmt::Display for ThemeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ThemeError::Toml(e) => write!(f, "TOML inválido: {e}"),
+            ThemeError::Toml(e) => write!(f, "invalid TOML: {e}"),
             ThemeError::Empty => write!(f, "el archivo no define temas"),
-            ThemeError::InvalidColor(c) => write!(f, "color inválido: {c}"),
+            ThemeError::InvalidColor(c) => write!(f, "invalid color: {c}"),
             ThemeError::PaletteSize(n) => write!(f, "la paleta debe tener 16 colores, tiene {n}"),
             ThemeError::DuplicateId(id) => write!(f, "id de tema duplicado: {id}"),
             ThemeError::MissingName(id) => write!(f, "el tema {id} no tiene nombre"),

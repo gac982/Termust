@@ -26,9 +26,13 @@ impl std::fmt::Display for GitError {
                 write!(f, "No es un repositorio git: {}", path.display())
             }
             GitError::Io(message) => write!(f, "{message}"),
-            GitError::Exit { code, stderr } => write!(f, "git falló ({code:?}): {stderr}"),
+            GitError::Exit { code, stderr } => {
+                write!(f, "{} ({code:?}): {stderr}", termust_i18n::tr("git failed"))
+            }
             GitError::InvalidPath(path) => write!(f, "Ruta no permitida: {path}"),
-            GitError::EmptyMessage => write!(f, "El mensaje de commit está vacío"),
+            GitError::EmptyMessage => {
+                write!(f, "{}", termust_i18n::tr("The commit message is empty"))
+            }
         }
     }
 }

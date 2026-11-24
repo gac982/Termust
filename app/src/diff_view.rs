@@ -14,6 +14,7 @@ use termust_git_local::{Diff, Git};
 
 use crate::git_async::listen;
 use crate::git_host::HostGitRunner;
+use crate::i18n;
 
 const CAP: usize = 5_000;
 
@@ -44,15 +45,15 @@ impl DiffView {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("termust-diff");
 
-        let staged_toggle = gtk::ToggleButton::with_label("Index");
+        let staged_toggle = gtk::ToggleButton::with_label(&i18n::tr("Index"));
         staged_toggle.add_css_class("flat");
-        staged_toggle.set_tooltip_text(Some("Ver el diff del index"));
-        staged_toggle.update_property(&[gtk::accessible::Property::Label("Index")]);
+        staged_toggle.set_tooltip_text(Some(&i18n::tr("View the index diff")));
+        staged_toggle.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Index"))]);
 
         let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
         refresh.add_css_class("flat");
-        refresh.set_tooltip_text(Some("Actualizar diff"));
-        refresh.update_property(&[gtk::accessible::Property::Label("Actualizar diff")]);
+        refresh.set_tooltip_text(Some(&i18n::tr("Refresh diff")));
+        refresh.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Refresh diff"))]);
 
         let status = gtk::Label::new(None);
         status.add_css_class("dim-label");
@@ -145,7 +146,7 @@ impl DiffView {
         self.binary.set(false);
         self.truncated.set(false);
         self.buffer.set_text("");
-        self.status.set_text("Calculando diff…");
+        self.status.set_text(&i18n::tr("Computing diff…"));
 
         let git = self.git.clone();
         let staged = self.staged.get();
@@ -212,10 +213,12 @@ impl DiffView {
         match outcome {
             Outcome::NoRepo => self
                 .status
-                .set_text("Este archivo no está en un repositorio git"),
+                .set_text(&i18n::tr("This file is not in a git repository")),
             Outcome::Error(message) => {
-                self.status
-                    .set_text(&format!("No se pudo calcular el diff: {message}"));
+                self.status.set_text(&i18n::tr_args(
+                    "Could not compute the diff: {message}",
+                    &[("message", &message)],
+                ));
             }
             Outcome::Diff(diff) => {
                 self.lines.set(diff.lines.len());
@@ -223,7 +226,7 @@ impl DiffView {
                 self.truncated.set(diff.truncated);
                 if diff.binary {
                     self.buffer
-                        .set_text("Archivo binario: no se muestra el diff.");
+                        .set_text(&i18n::tr("Binary file: the diff is not shown."));
                     self.status.set_text("");
                 } else if diff.lines.is_empty() {
                     let missing = self
@@ -232,16 +235,19 @@ impl DiffView {
                         .as_ref()
                         .map(|path| !path.exists())
                         .unwrap_or(false);
-                    self.status.set_text(if missing {
-                        "El archivo no existe"
+                    let message = if missing {
+                        i18n::tr("The file does not exist")
                     } else {
-                        "Sin diferencias"
-                    });
+                        i18n::tr("No differences")
+                    };
+                    self.status.set_text(&message);
                 } else {
                     crate::diff_render::fill_diff_buffer(&self.buffer, &diff);
                     if diff.truncated {
-                        self.status
-                            .set_text(&format!("Diff truncado ({} líneas)", diff.lines.len()));
+                        self.status.set_text(&i18n::tr_args(
+                            "Truncated diff ({count} lines)",
+                            &[("count", &diff.lines.len().to_string())],
+                        ));
                     } else {
                         self.status.set_text("");
                     }

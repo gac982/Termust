@@ -7,6 +7,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+termust-i18n.workspace = true
 rusqlite.workspace = true
 chacha20poly1305.workspace = true
 argon2.workspace = true

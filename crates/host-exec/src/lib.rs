@@ -145,9 +145,9 @@ fn materialize_host_pty() -> Result<Option<HostPty>, HostError> {
             }
             let _ = fs::copy(&dep, tmp.join(name));
         }
-        let loader_source = loader_source
-            .or_else(default_loader)
-            .ok_or_else(|| HostError::Io("no se encontró ld-linux en el runtime".into()))?;
+        let loader_source = loader_source.or_else(default_loader).ok_or_else(|| {
+            HostError::Io(termust_i18n::tr("could not find ld-linux in the runtime"))
+        })?;
         copy_exec(&loader_source, &tmp.join("ld-linux-x86-64.so.2"))?;
         fs::write(tmp.join(".ready"), b"ok").map_err(|e| HostError::Io(e.to_string()))?;
 

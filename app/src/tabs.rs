@@ -22,6 +22,7 @@ use termust_term_engine::AlacrittyEngine;
 use termust_ui::TerminalView;
 
 use crate::appearance::Appearance;
+use crate::i18n;
 
 struct Entry {
     id: TabId,
@@ -97,7 +98,7 @@ impl TabManager {
             let model = model.borrow();
             let tab = model
                 .get(first)
-                .ok_or_else(|| "pestaña inexistente".to_string())?;
+                .ok_or_else(|| i18n::tr("tab does not exist"))?;
             tab.layout
                 .leaves()
                 .into_iter()
@@ -176,7 +177,7 @@ impl TabManager {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
-                .ok_or_else(|| "pestaña inexistente".to_string())?;
+                .ok_or_else(|| i18n::tr("tab does not exist"))?;
             tab.layout
                 .leaves()
                 .into_iter()
@@ -201,13 +202,13 @@ impl TabManager {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
-                .ok_or_else(|| "pestaña inexistente".to_string())?;
+                .ok_or_else(|| i18n::tr("tab does not exist"))?;
             (tab.cwd.clone(), tab.title_override.clone())
         };
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         container.set_hexpand(true);
         container.set_vexpand(true);
-        let placeholder = gtk::Label::new(Some("Restaurando…"));
+        let placeholder = gtk::Label::new(Some(&i18n::tr("Restoring…")));
         placeholder.add_css_class("dim-label");
         placeholder.set_vexpand(true);
         container.append(&placeholder);
@@ -236,7 +237,7 @@ impl TabManager {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
-                .ok_or_else(|| "pestaña inexistente".to_string())?;
+                .ok_or_else(|| i18n::tr("tab does not exist"))?;
             (
                 tab.layout.clone(),
                 tab.cwd.clone(),
@@ -429,7 +430,7 @@ impl TabManager {
             PaneTree::Leaf(pane) => panes
                 .get(pane)
                 .map(|view| view.widget().clone().upcast())
-                .unwrap_or_else(|| gtk::Label::new(Some("panel no disponible")).upcast()),
+                .unwrap_or_else(|| gtk::Label::new(Some(&i18n::tr("pane not available"))).upcast()),
             PaneTree::Split {
                 orientation,
                 ratio,
@@ -531,18 +532,18 @@ impl TabManager {
 
     pub fn split_active(&mut self, orientation: SplitOrientation) -> Result<PaneId, String> {
         let Some(index) = self.active_entry_index() else {
-            return Err("sin pestaña activa".into());
+            return Err(i18n::tr("no active tab"));
         };
         let tab_id = self.entries[index].id;
         let (active, len, tab_cwd) = {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
-                .ok_or_else(|| "pestaña inexistente".to_string())?;
+                .ok_or_else(|| i18n::tr("tab does not exist"))?;
             (tab.active_pane, tab.layout.len(), tab.cwd.clone())
         };
         if len >= termust_core::tabs::MAX_PANES {
-            return Err("Máximo 4 paneles por pestaña".into());
+            return Err(i18n::tr("Maximum 4 panes per tab"));
         }
         let cwd = self.entries[index]
             .panes
@@ -560,7 +561,7 @@ impl TabManager {
             };
             if let Some(half) = half {
                 if !fits_min_width(half, 1) {
-                    return Err("No hay ancho suficiente (mínimo 320 px por panel)".into());
+                    return Err(i18n::tr("Not enough width (minimum 320 px per pane)"));
                 }
             }
         }
@@ -570,8 +571,8 @@ impl TabManager {
             .borrow_mut()
             .split_pane(tab_id, active, orientation)
             .map_err(|e| match e {
-                SplitError::MaxPanes => "Máximo 4 paneles por pestaña".to_string(),
-                _ => "No se pudo dividir el panel".to_string(),
+                SplitError::MaxPanes => i18n::tr("Maximum 4 panes per tab"),
+                _ => i18n::tr("Could not split the pane"),
             })?;
 
         let view = match self.spawn_view(tab_id, &cwd) {
@@ -593,12 +594,12 @@ impl TabManager {
 
     pub fn apply_preset(&mut self, preset: Preset) -> Result<(), String> {
         let Some(index) = self.active_entry_index() else {
-            return Err("sin pestaña activa".into());
+            return Err(i18n::tr("no active tab"));
         };
         let tab_id = self.entries[index].id;
         let width = self.entries[index].container.width() as f64;
         if !fits_min_width(width, preset.columns()) {
-            return Err("No hay ancho suficiente (mínimo 320 px por panel)".into());
+            return Err(i18n::tr("Not enough width (minimum 320 px per pane)"));
         }
         let tab_cwd = {
             let model = self.model.borrow();
@@ -614,9 +615,9 @@ impl TabManager {
             .apply_preset(tab_id, preset)
             .map_err(|e| match e {
                 SplitError::TooManyPanes => {
-                    "Ese diseño tiene menos paneles; cierra los demás primero".to_string()
+                    i18n::tr("That layout has fewer panes; close the others first")
                 }
-                _ => "No se pudo aplicar el diseño".to_string(),
+                _ => i18n::tr("Could not apply the layout"),
             })?;
         for pane in created {
             let view = self.spawn_view(tab_id, &cwd)?;
@@ -1203,11 +1204,13 @@ impl TabManager {
         let window = manager.borrow().window.clone();
         let manager = manager.clone();
         let dialog = libadwaita::AlertDialog::builder()
-            .title("Cerrar panel con proceso activo")
-            .body("Hay un proceso en ejecución en este panel. Si lo cierras, se terminará.")
+            .title(i18n::tr("Close pane with a running process"))
+            .body(i18n::tr(
+                "A process is running in this pane. Closing it will terminate it.",
+            ))
             .build();
-        dialog.add_response("cancel", "Cancel");
-        dialog.add_response("close", "Close");
+        dialog.add_response("cancel", &i18n::tr("Cancel"));
+        dialog.add_response("close", &i18n::tr("Close"));
         dialog.set_response_appearance("close", ResponseAppearance::Destructive);
         dialog.connect_response(None, move |_, response| {
             if response == "close" {
@@ -1295,11 +1298,13 @@ impl TabManager {
                 let page = page.clone();
                 let manager = manager.clone();
                 let dialog = libadwaita::AlertDialog::builder()
-                    .title("Cerrar con proceso activo")
-                    .body("Hay un proceso en ejecución. Si cierras, se terminará.")
+                    .title(i18n::tr("Close with a running process"))
+                    .body(i18n::tr(
+                        "A process is running. Closing it will terminate it.",
+                    ))
                     .build();
-                dialog.add_response("cancel", "Cancel");
-                dialog.add_response("close", "Close");
+                dialog.add_response("cancel", &i18n::tr("Cancel"));
+                dialog.add_response("close", &i18n::tr("Close"));
                 dialog.set_response_appearance("close", ResponseAppearance::Destructive);
                 dialog.connect_response(None, move |_, response| {
                     if let Ok(manager) = manager.try_borrow() {
@@ -1375,11 +1380,11 @@ impl TabManager {
         entry.set_text(&current);
         entry.set_activates_default(true);
         let dialog = libadwaita::AlertDialog::builder()
-            .title("Rename tab")
+            .title(i18n::tr("Rename tab"))
             .extra_child(&entry)
             .build();
-        dialog.add_response("cancel", "Cancel");
-        dialog.add_response("rename", "Rename");
+        dialog.add_response("cancel", &i18n::tr("Cancel"));
+        dialog.add_response("rename", &i18n::tr("Rename"));
         dialog.set_response_appearance("rename", ResponseAppearance::Suggested);
         dialog.set_default_response(Some("rename"));
         {
@@ -1442,8 +1447,12 @@ pub fn restored_session(
         });
         pane_cwds.push(cwds);
     }
-    let model = TabModel::restore(tabs, snapshot.active_tab)
-        .map_err(|error| format!("sesión inválida: {error:?}"))?;
+    let model = TabModel::restore(tabs, snapshot.active_tab).map_err(|error| {
+        i18n::tr_args(
+            "invalid session: {error:?}",
+            &[("error", &format!("{error:?}"))],
+        )
+    })?;
     Ok(RestoredSession { model, pane_cwds })
 }
 

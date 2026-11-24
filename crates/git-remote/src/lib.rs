@@ -48,21 +48,21 @@ impl PushFailure {
     pub fn message(&self) -> String {
         match self {
             PushFailure::NonFastForward => {
-                "El remoto tiene commits nuevos (non-fast-forward). Hacé fetch/merge y volvé a intentar; no se fuerza el push.".into()
+                termust_i18n::tr("The remote has new commits (non-fast-forward). Fetch/merge and try again; the push is not forced.")
             }
             PushFailure::Authentication => {
-                "Autenticación HTTPS rechazada. Revisá el usuario y el token del vault.".into()
+                termust_i18n::tr("HTTPS authentication rejected. Check the username and vault token.")
             }
             PushFailure::SshAuth => {
-                "SSH rechazó la autenticación. Verificá que el agente tenga la clave cargada (ssh-add -l).".into()
+                termust_i18n::tr("SSH rejected authentication. Make sure the agent has the key loaded (ssh-add -l).")
             }
             PushFailure::HostKey => {
-                "La clave del host SSH no es válida o cambió. Revisá ~/.ssh/known_hosts en el host.".into()
+                termust_i18n::tr("The SSH host key is invalid or changed. Check ~/.ssh/known_hosts on the host.")
             }
             PushFailure::NoUpstream => {
-                "La rama no tiene upstream. Usá «set upstream» o configurá el remoto.".into()
+                termust_i18n::tr("The branch has no upstream. Use “set upstream” or configure the remote.")
             }
-            PushFailure::Rejected => "El remoto rechazó el push.".into(),
+            PushFailure::Rejected => termust_i18n::tr("The remote rejected the push."),
             PushFailure::Other(message) => message.clone(),
         }
     }
@@ -97,19 +97,21 @@ fn error(message: &str) -> RemoteError {
 
 pub fn parse_remote_url(input: &str) -> Result<RemoteSpec, RemoteError> {
     if input != input.trim() {
-        return Err(error("la URL tiene espacios al principio o al final"));
+        return Err(error(&termust_i18n::tr(
+            "the URL has leading or trailing spaces",
+        )));
     }
     if input.is_empty()
         || input
             .chars()
             .any(|ch| ch.is_control() || ch.is_whitespace())
     {
-        return Err(error("URL inválida"));
+        return Err(error(&termust_i18n::tr("invalid URL")));
     }
     let lower = input.to_ascii_lowercase();
     for prefix in ["ext::", "file://", "http://", "git://", "ftp://", "ssh+"] {
         if lower.starts_with(prefix) {
-            return Err(error("transporte no permitido"));
+            return Err(error(&termust_i18n::tr("transport not allowed")));
         }
     }
     if lower.starts_with("https://") {
@@ -119,7 +121,7 @@ pub fn parse_remote_url(input: &str) -> Result<RemoteSpec, RemoteError> {
         return parse_ssh_url(input);
     }
     if lower.contains("://") {
-        return Err(error("transporte no permitido"));
+        return Err(error(&termust_i18n::tr("transport not allowed")));
     }
     parse_scp_like(input)
 }
@@ -128,20 +130,22 @@ fn parse_https(input: &str) -> Result<RemoteSpec, RemoteError> {
     let rest = &input["https://".len()..];
     let (authority, path) = rest
         .split_once('/')
-        .ok_or_else(|| error("falta el path del repositorio"))?;
+        .ok_or_else(|| error(&termust_i18n::tr("missing repository path")))?;
     if path.is_empty() || path.contains(['?', '#']) || path.split('/').any(|part| part == "..") {
-        return Err(error("path de repositorio inválido"));
+        return Err(error(&termust_i18n::tr("invalid repository path")));
     }
     if path.split('/').any(|part| part.starts_with('-')) {
-        return Err(error("path de repositorio inválido"));
+        return Err(error(&termust_i18n::tr("invalid repository path")));
     }
     let (username, host) = match authority.rsplit_once('@') {
         Some((userinfo, host)) => {
             if userinfo.contains(':') {
-                return Err(error("no se admite contraseña en la URL; usá el vault"));
+                return Err(error(&termust_i18n::tr(
+                    "passwords are not allowed in the URL; use the vault",
+                )));
             }
             if userinfo.is_empty() {
-                return Err(error("usuario vacío en la URL"));
+                return Err(error(&termust_i18n::tr("empty user in the URL")));
             }
             (Some(userinfo.to_string()), host)
         }
@@ -163,12 +167,12 @@ fn parse_ssh_url(input: &str) -> Result<RemoteSpec, RemoteError> {
         None => (rest, None),
     };
     if authority.is_empty() {
-        return Err(error("host SSH vacío"));
+        return Err(error(&termust_i18n::tr("empty SSH host")));
     }
     let (userinfo, host) = match authority.rsplit_once('@') {
         Some((user, host)) => {
             if user.is_empty() {
-                return Err(error("usuario SSH vacío"));
+                return Err(error(&termust_i18n::tr("empty SSH user")));
             }
             (Some(user), host)
         }
@@ -189,19 +193,21 @@ fn parse_ssh_url(input: &str) -> Result<RemoteSpec, RemoteError> {
 
 fn parse_scp_like(input: &str) -> Result<RemoteSpec, RemoteError> {
     if input.starts_with('-') {
-        return Err(error("la URL no puede empezar con «-»"));
+        return Err(error(&termust_i18n::tr("the URL cannot start with “-”")));
     }
     let (userhost, path) = input
         .split_once(':')
-        .ok_or_else(|| error("URL SSH inválida"))?;
+        .ok_or_else(|| error(&termust_i18n::tr("invalid SSH URL")))?;
     if path.is_empty() || userhost.contains('/') {
-        return Err(error("URL SSH inválida"));
+        return Err(error(&termust_i18n::tr("invalid SSH URL")));
     }
-    let (username, host) = userhost
-        .rsplit_once('@')
-        .ok_or_else(|| error("SSH scp-like requiere usuario@host:path"))?;
+    let (username, host) = userhost.rsplit_once('@').ok_or_else(|| {
+        error(&termust_i18n::tr(
+            "SSH scp-like URL requires user@host:path",
+        ))
+    })?;
     if username.is_empty() {
-        return Err(error("usuario SSH vacío"));
+        return Err(error(&termust_i18n::tr("empty SSH user")));
     }
     let host = validate_host(host)?;
     Ok(RemoteSpec {
@@ -214,12 +220,12 @@ fn parse_scp_like(input: &str) -> Result<RemoteSpec, RemoteError> {
 
 fn validate_host(host: &str) -> Result<String, RemoteError> {
     if host.is_empty() || host.contains('/') || host.contains('@') {
-        return Err(error("host inválido"));
+        return Err(error(&termust_i18n::tr("invalid host")));
     }
     let (name, port) = match host.rsplit_once(':') {
         Some((name, port)) => {
             if port.is_empty() || !port.chars().all(|ch| ch.is_ascii_digit()) {
-                return Err(error("puerto inválido"));
+                return Err(error(&termust_i18n::tr("invalid port")));
             }
             (name, Some(port))
         }
@@ -230,7 +236,7 @@ fn validate_host(host: &str) -> Result<String, RemoteError> {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-')
     {
-        return Err(error("host inválido"));
+        return Err(error(&termust_i18n::tr("invalid host")));
     }
     Ok(match port {
         Some(port) => format!("{}:{port}", name.to_ascii_lowercase()),
@@ -240,13 +246,13 @@ fn validate_host(host: &str) -> Result<String, RemoteError> {
 
 pub fn validate_remote_name(name: &str) -> Result<(), RemoteError> {
     if name.is_empty() || name.len() > 64 || name.starts_with('-') || name == "." || name == ".." {
-        return Err(error("nombre de remoto inválido"));
+        return Err(error(&termust_i18n::tr("invalid remote name")));
     }
     if !name
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
     {
-        return Err(error("nombre de remoto inválido"));
+        return Err(error(&termust_i18n::tr("invalid remote name")));
     }
     Ok(())
 }
@@ -263,7 +269,9 @@ pub fn validate_refspec(refspec: &str) -> Result<(), RemoteError> {
             .chars()
             .any(|ch| matches!(ch, '~' | '^' | '?' | '*' | '[' | '\\'))
     {
-        return Err(error("refspec inválido (no se permite forzar)"));
+        return Err(error(&termust_i18n::tr(
+            "invalid refspec (force is not allowed)",
+        )));
     }
     Ok(())
 }

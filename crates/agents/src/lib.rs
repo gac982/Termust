@@ -68,12 +68,12 @@ pub enum AgentState {
 }
 
 impl AgentState {
-    pub fn label(&self) -> &'static str {
+    pub fn label(&self) -> String {
         match self {
-            AgentState::Active => "Activo",
-            AgentState::Idle => "Inactivo",
-            AgentState::WaitingInput => "Esperando entrada",
-            AgentState::Exited { .. } => "Terminado",
+            AgentState::Active => termust_i18n::tr("Active"),
+            AgentState::Idle => termust_i18n::tr("Idle"),
+            AgentState::WaitingInput => termust_i18n::tr("Waiting for input"),
+            AgentState::Exited { .. } => termust_i18n::tr("Exited"),
         }
     }
 

@@ -3,6 +3,8 @@
 use std::path::Path;
 use termust_git_local::{GitError, GitRunner};
 
+use crate::i18n;
+
 pub(crate) struct HostGitRunner;
 
 impl GitRunner for HostGitRunner {
@@ -14,7 +16,12 @@ impl GitRunner for HostGitRunner {
         termust_host_exec::host_command("git", args, Some(cwd))
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
-            .map_err(|error| GitError::Io(format!("no se pudo ejecutar git: {error}")))
+            .map_err(|error| {
+                GitError::Io(i18n::tr_args(
+                    "could not run git: {error}",
+                    &[("error", &error.to_string())],
+                ))
+            })
     }
 }
 

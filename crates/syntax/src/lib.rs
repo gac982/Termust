@@ -72,12 +72,12 @@ impl Language {
             Self::Html => "HTML",
             Self::Css => "CSS",
             Self::Astro => "Astro",
-            Self::Vue => "Vue (HTML + inyección)",
+            Self::Vue => "Vue (HTML + injection)",
             Self::Json => "JSON",
             Self::Toml => "TOML",
             Self::Yaml => "YAML",
             Self::Markdown => "Markdown",
-            Self::Plain => "Texto plano",
+            Self::Plain => "Plain text",
         }
     }
 

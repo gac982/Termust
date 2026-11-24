@@ -25,11 +25,15 @@ impl std::fmt::Display for VaultError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VaultError::Missing => write!(f, "No hay credencial para ese origen"),
-            VaultError::Tampered => write!(f, "La credencial está corrupta o fue alterada"),
+            VaultError::Tampered => write!(
+                f,
+                "{}",
+                termust_i18n::tr("The credential is corrupted or was modified")
+            ),
             VaultError::Invalid(message) => write!(f, "{message}"),
             VaultError::Sql(message) => write!(f, "Error de base de datos: {message}"),
             VaultError::Io(message) => write!(f, "{message}"),
-            VaultError::Crypto => write!(f, "Error criptográfico"),
+            VaultError::Crypto => write!(f, "{}", termust_i18n::tr("Cryptographic error")),
         }
     }
 }
@@ -61,9 +65,9 @@ impl MasterKey {
     pub fn from_hex(value: &str) -> Result<Self, VaultError> {
         let value = value.trim();
         if value.len() != KEY_LEN * 2 {
-            return Err(VaultError::Invalid(
-                "clave maestra con longitud inválida".into(),
-            ));
+            return Err(VaultError::Invalid(termust_i18n::tr(
+                "master key with invalid length",
+            )));
         }
         let mut bytes = [0u8; KEY_LEN];
         for (index, chunk) in value.as_bytes().chunks(2).enumerate() {
@@ -320,7 +324,7 @@ pub fn derive_key(passphrase: &str, salt: &[u8]) -> Result<MasterKey, VaultError
 fn validate_origin(origin: &str) -> Result<(), VaultError> {
     if origin.trim().is_empty() || origin.chars().any(|ch| ch.is_control()) || origin.contains('\0')
     {
-        return Err(VaultError::Invalid("origen inválido".into()));
+        return Err(VaultError::Invalid(termust_i18n::tr("invalid origin")));
     }
     Ok(())
 }

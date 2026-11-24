@@ -217,35 +217,41 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 ) {
                     Ok(manager) => {
                         notice = Some(if missing {
-                            "Sesión restaurada; algunos directorios no existían y se usó $HOME."
-                                .into()
+                            i18n::tr("Session restored; some directories did not exist and $HOME was used.")
                         } else {
-                            "Session restored. Processes are not restored.".into()
+                            i18n::tr("Session restored. Processes are not restored.")
                         });
                         Ok(manager)
                     }
                     Err(e) => {
                         eprintln!("termust: no se pudo restaurar la sesión: {e}");
-                        notice =
-                            Some("No se pudo restaurar la sesión; se inició una nueva.".into());
+                        notice = Some(i18n::tr(
+                            "Could not restore the session; a new one was started.",
+                        ));
                         make_fresh()
                     }
                 },
                 Err(e) => {
                     eprintln!("termust: sesión inválida: {e}");
-                    notice = Some("The saved session is invalid; a new one was started.".into());
+                    notice = Some(i18n::tr(
+                        "The saved session is invalid; a new one was started.",
+                    ));
                     make_fresh()
                 }
             }
         }
         termust_store::LoadResult::Corrupt(e) => {
             eprintln!("termust: sesión corrupta: {e}");
-            notice = Some("Could not read the saved session; a new one was started.".into());
+            notice = Some(i18n::tr(
+                "Could not read the saved session; a new one was started.",
+            ));
             make_fresh()
         }
         termust_store::LoadResult::FutureVersion(version) => {
             eprintln!("termust: sesión con schema v{version} no soportado");
-            notice = Some("The saved session is from a newer version; it was ignored.".into());
+            notice = Some(i18n::tr(
+                "The saved session is from a newer version; it was ignored.",
+            ));
             make_fresh()
         }
         termust_store::LoadResult::Missing => make_fresh(),
@@ -329,7 +335,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     install_css();
     let new_tab = gtk::Button::builder()
         .icon_name("tab-new-symbolic")
-        .tooltip_text("New tab")
+        .tooltip_text(i18n::tr("New tab"))
         .build();
     new_tab.add_css_class("flat");
     new_tab.update_property(&[gtk::accessible::Property::Label(&i18n::tr("New tab"))]);
@@ -346,21 +352,21 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     let vertical_visible = setting_bool("vertical-tabs", false);
     let files_button = gtk::ToggleButton::builder()
         .icon_name("sidebar-show-symbolic")
-        .tooltip_text("Panel de archivos (F9)")
+        .tooltip_text(i18n::tr("File panel (F9)"))
         .active(files_visible)
         .build();
     files_button.add_css_class("flat");
     files_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("File panel"))]);
     let tabs_button = gtk::ToggleButton::builder()
         .icon_name("view-list-symbolic")
-        .tooltip_text("Pestañas verticales (Ctrl+Shift+L)")
+        .tooltip_text(i18n::tr("Vertical tabs (Ctrl+Shift+L)"))
         .active(vertical_visible)
         .build();
     tabs_button.add_css_class("flat");
     tabs_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Vertical tabs"))]);
     let git_button = gtk::ToggleButton::builder()
         .label("Git")
-        .tooltip_text("Git (Ctrl+Shift+G)")
+        .tooltip_text(i18n::tr("Git (Ctrl+Shift+G)"))
         .build();
     git_button.add_css_class("flat");
     git_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Git"))]);
@@ -652,7 +658,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 };
                 let theme_id = if id == AUTO_THEME { None } else { Some(id) };
                 if !manager.borrow_mut().set_active_tab_theme(theme_id) {
-                    toast.add_toast(libadwaita::Toast::new("No active tab"));
+                    toast.add_toast(libadwaita::Toast::new(&i18n::tr("No active tab")));
                 }
             });
         }
@@ -663,7 +669,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let toast = toast_overlay.clone();
             clear_history.connect_activate(move |_, _| {
                 index.borrow_mut().clear();
-                toast.add_toast(libadwaita::Toast::new("Command history cleared"));
+                toast.add_toast(libadwaita::Toast::new(&i18n::tr("Command history cleared")));
             });
         }
         group.add_action(&clear_history);
@@ -792,9 +798,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         );
         let menu_button = gtk::MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text("Menú")
+            .tooltip_text(i18n::tr("Menu"))
             .build();
-        menu_button.update_property(&[gtk::accessible::Property::Label("Menú")]);
+        menu_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Menu"))]);
         menu_button.set_menu_model(Some(&menu));
         header.pack_end(&menu_button);
     }
@@ -3100,8 +3106,8 @@ fn main() {}
     if std::env::var_os("TERMUST_I18N_TEST").is_some() {
         eprintln!(
             "termust-i18n-test: preferencias={:?} panel={:?}",
-            i18n::tr("Preferencias"),
-            i18n::tr("Panel de archivos")
+            i18n::tr("Preferences"),
+            i18n::tr("File panel")
         );
         app.quit();
         return window;
@@ -3522,7 +3528,7 @@ fn map_key(key: gdk::Key) -> Option<CoreKey> {
 fn show_error(toolbar: &ToolbarView, message: &str) {
     let page = libadwaita::StatusPage::builder()
         .icon_name("dialog-error-symbolic")
-        .title("No se pudo iniciar el terminal")
+        .title(i18n::tr("Could not start the terminal"))
         .description(message)
         .build();
     toolbar.set_content(Some(&page));
@@ -3601,9 +3607,9 @@ fn open_history(
                 view.grab_focus();
             }
             Err(_) => {
-                toast.add_toast(libadwaita::Toast::new(
-                    "El comando es multilínea y el shell no soporta bracketed paste.",
-                ));
+                toast.add_toast(libadwaita::Toast::new(&i18n::tr(
+                    "The command is multiline and the shell does not support bracketed paste.",
+                )));
             }
         }
     });
@@ -3650,7 +3656,7 @@ fn update_agent_bar(
     name.set_text(&agent.display_name);
     task.set_text(&agent.task);
     task.set_tooltip_text(Some(&agent.task));
-    dot.set_tooltip_text(Some(agent.state.label()));
+    dot.set_tooltip_text(Some(&agent.state.label()));
     dot.set_css_classes(&["termust-agent-dot", agent.state.css_class()]);
 }
 
@@ -3690,45 +3696,45 @@ fn process_cpu_ticks() -> u64 {
 
 fn show_shortcuts(window: &ApplicationWindow) {
     let dialog = libadwaita::ShortcutsDialog::new();
-    dialog.set_title(&i18n::tr("Atajos de teclado"));
-    let tabs = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Pestañas")));
+    dialog.set_title(&i18n::tr("Keyboard shortcuts"));
+    let tabs = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Tabs")));
     for (title, accel) in [
-        ("Nueva pestaña", "<Control><Shift>t"),
-        ("Cerrar pestaña", "<Control><Shift>w"),
-        ("Pestaña siguiente", "<Control>Page_Down"),
-        ("Pestaña anterior", "<Control>Page_Up"),
-        ("Mover pestaña a la izquierda", "<Control><Shift>Page_Up"),
-        ("Mover pestaña a la derecha", "<Control><Shift>Page_Down"),
+        ("New tab", "<Control><Shift>t"),
+        ("Close tab", "<Control><Shift>w"),
+        ("Next tab", "<Control>Page_Down"),
+        ("Previous tab", "<Control>Page_Up"),
+        ("Move tab left", "<Control><Shift>Page_Up"),
+        ("Move tab right", "<Control><Shift>Page_Down"),
     ] {
         tabs.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
     }
     dialog.add(tabs);
-    let panes = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Paneles")));
+    let panes = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Panes")));
     for (title, accel) in [
-        ("Dividir panel a la derecha", "<Control><Shift>d"),
-        ("Dividir panel abajo", "<Control><Shift>e"),
-        ("Enfocar panel a la izquierda", "<Control><Shift>Left"),
-        ("Enfocar panel a la derecha", "<Control><Shift>Right"),
-        ("Enfocar panel arriba", "<Control><Shift>Up"),
-        ("Enfocar panel abajo", "<Control><Shift>Down"),
-        ("Redimensionar a la izquierda", "<Control><Alt><Shift>Left"),
-        ("Redimensionar a la derecha", "<Control><Alt><Shift>Right"),
-        ("Redimensionar arriba", "<Control><Alt><Shift>Up"),
-        ("Redimensionar abajo", "<Control><Alt><Shift>Down"),
+        ("Split pane right", "<Control><Shift>d"),
+        ("Split pane down", "<Control><Shift>e"),
+        ("Focus pane left", "<Control><Shift>Left"),
+        ("Focus pane right", "<Control><Shift>Right"),
+        ("Focus pane up", "<Control><Shift>Up"),
+        ("Focus pane down", "<Control><Shift>Down"),
+        ("Resize left", "<Control><Alt><Shift>Left"),
+        ("Resize right", "<Control><Alt><Shift>Right"),
+        ("Resize up", "<Control><Alt><Shift>Up"),
+        ("Resize down", "<Control><Alt><Shift>Down"),
     ] {
         panes.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
     }
     dialog.add(panes);
-    let app = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Aplicación")));
+    let app = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Application")));
     for (title, accel) in [
-        ("Zoom acercar", "<Control>plus"),
-        ("Zoom alejar", "<Control>minus"),
-        ("Restablecer zoom", "<Control>0"),
-        ("Pantalla completa", "F11"),
-        ("Panel de archivos", "F9"),
-        ("Pestañas verticales", "<Control><Shift>l"),
+        ("Zoom in", "<Control>plus"),
+        ("Zoom out", "<Control>minus"),
+        ("Reset zoom", "<Control>0"),
+        ("Fullscreen", "F11"),
+        ("File panel", "F9"),
+        ("Vertical tabs", "<Control><Shift>l"),
         ("Git", "<Control><Shift>g"),
-        ("Preferencias", "<Control>comma"),
+        ("Preferences", "<Control>comma"),
         ("Atajos de teclado", "<Control><Shift>question"),
     ] {
         app.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
@@ -3746,9 +3752,9 @@ fn show_about(window: &ApplicationWindow) {
     dialog.set_developers(&["Termust"]);
     dialog.set_license_type(gtk::License::Gpl30);
     dialog.set_website("https://github.com/gac982/Termust");
-    dialog.add_link(&i18n::tr("Sitio web"), "https://github.com/gac982/Termust");
+    dialog.add_link(&i18n::tr("Website"), "https://github.com/gac982/Termust");
     dialog.add_link(
-        &i18n::tr("Reportar un problema"),
+        &i18n::tr("Report an issue"),
         "https://github.com/gac982/Termust/issues",
     );
     dialog.present(Some(window));

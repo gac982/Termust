@@ -1388,6 +1388,7 @@ version = "1.2.3"
 dependencies = [
  "regex",
  "serde",
+ "termust-i18n",
  "toml",
 ]
 
@@ -1438,15 +1439,22 @@ name = "termust-fs-local"
 version = "1.2.3"
 dependencies = [
  "libc",
+ "termust-i18n",
 ]
 
 [[package]]
 name = "termust-git-local"
 version = "1.2.3"
+dependencies = [
+ "termust-i18n",
+]
 
 [[package]]
 name = "termust-git-remote"
 version = "1.2.3"
+dependencies = [
+ "termust-i18n",
+]
 
 [[package]]
 name = "termust-host-exec"
@@ -1454,6 +1462,7 @@ version = "1.2.3"
 dependencies = [
  "libc",
  "termust-core",
+ "termust-i18n",
 ]
 
 [[package]]
@@ -1502,6 +1511,7 @@ dependencies = [
  "serde",
  "serde_json",
  "termust-core",
+ "termust-i18n",
 ]
 
 [[package]]
@@ -1558,6 +1568,7 @@ dependencies = [
  "chacha20poly1305",
  "getrandom 0.3.4",
  "rusqlite",
+ "termust-i18n",
  "zeroize",
 ]
 

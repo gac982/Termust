@@ -1,3 +1,4 @@
+use crate::i18n;
 use gtk::glib;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
@@ -48,7 +49,7 @@ impl HistoryController {
     ) -> Rc<Self> {
         Rc::new_cyclic(|weak: &Weak<HistoryController>| {
             let entry = gtk::SearchEntry::new();
-            entry.set_placeholder_text(Some("Buscar en el historial…"));
+            entry.set_placeholder_text(Some(&i18n::tr("Search history…")));
             entry.set_hexpand(true);
 
             let list = gtk::ListBox::new();
@@ -61,13 +62,13 @@ impl HistoryController {
                 .child(&list)
                 .build();
 
-            let title = gtk::Label::new(Some("Historial de comandos"));
+            let title = gtk::Label::new(Some(&i18n::tr("Command history")));
             title.add_css_class("heading");
             title.set_xalign(0.0);
             title.set_hexpand(true);
             let close = gtk::Button::from_icon_name("window-close-symbolic");
             close.add_css_class("flat");
-            close.set_tooltip_text(Some("Cerrar (Esc)"));
+            close.set_tooltip_text(Some(&i18n::tr("Close (Esc)")));
             let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             header.append(&title);
             header.append(&close);
@@ -83,7 +84,7 @@ impl HistoryController {
             container.append(&scroll);
 
             let dialog = libadwaita::Dialog::new();
-            dialog.set_title("Historial de comandos");
+            dialog.set_title(&i18n::tr("Command history"));
             dialog.set_content_width(560);
             dialog.set_content_height(420);
             dialog.set_child(Some(&container));
@@ -384,7 +385,7 @@ fn meta_text(entry: &HistoryEntry) -> String {
                 parts.push(format!("exit {code}"));
             }
         }
-        HistorySource::Imported => parts.push("historial".to_string()),
+        HistorySource::Imported => parts.push(i18n::tr("history")),
     }
     parts.join("  ·  ")
 }

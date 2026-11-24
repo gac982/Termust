@@ -14,6 +14,7 @@ use termust_syntax::{
 };
 use termust_text_render::Theme;
 
+use crate::i18n;
 use crate::markdown::MarkdownPreview;
 
 /// Colores del resaltado derivados del tema del terminal.
@@ -143,26 +144,29 @@ impl Viewer {
 
         let spinner = gtk::Spinner::new();
         spinner.set_visible(false);
-        spinner.set_tooltip_text(Some("Calculando esquema…"));
+        spinner.set_tooltip_text(Some(&i18n::tr("Computing outline…")));
 
         let close_button = gtk::Button::from_icon_name("go-previous-symbolic");
         close_button.add_css_class("flat");
-        close_button.set_tooltip_text(Some("Volver al terminal"));
-        close_button.update_property(&[gtk::accessible::Property::Label("Volver al terminal")]);
+        close_button.set_tooltip_text(Some(&i18n::tr("Back to terminal")));
+        close_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+            "Back to terminal",
+        ))]);
 
         let search_toggle = gtk::ToggleButton::builder()
             .icon_name("edit-find-symbolic")
-            .tooltip_text("Buscar (Ctrl+F)")
+            .tooltip_text(i18n::tr("Search (Ctrl+F)"))
             .build();
         search_toggle.add_css_class("flat");
-        search_toggle.update_property(&[gtk::accessible::Property::Label("Buscar")]);
+        search_toggle.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Search"))]);
 
         let outline_button = gtk::MenuButton::builder()
             .icon_name("view-list-symbolic")
-            .tooltip_text("Esquema del archivo")
+            .tooltip_text(i18n::tr("File outline"))
             .build();
         outline_button.add_css_class("flat");
-        outline_button.update_property(&[gtk::accessible::Property::Label("Esquema del archivo")]);
+        outline_button
+            .update_property(&[gtk::accessible::Property::Label(&i18n::tr("File outline"))]);
         let outline_popover = gtk::Popover::new();
         let outline_list = gtk::ListBox::new();
         outline_list.set_selection_mode(gtk::SelectionMode::Single);
@@ -177,22 +181,26 @@ impl Viewer {
 
         let editor_button = gtk::Button::from_icon_name("document-edit-symbolic");
         editor_button.add_css_class("flat");
-        editor_button
-            .update_property(&[gtk::accessible::Property::Label("Abrir en editor externo")]);
-        editor_button.set_tooltip_text(Some("Abrir en editor externo"));
+        editor_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+            "Open in external editor",
+        ))]);
+        editor_button.set_tooltip_text(Some(&i18n::tr("Open in external editor")));
 
         let stack_switcher = gtk::StackSwitcher::new();
         stack_switcher.set_visible(false);
 
-        let vista_button = gtk::ToggleButton::with_label("Vista");
+        let vista_button = gtk::ToggleButton::with_label(&i18n::tr("View"));
         vista_button.add_css_class("flat");
-        vista_button.set_tooltip_text(Some("Ver el Markdown como documento"));
-        vista_button.update_property(&[gtk::accessible::Property::Label("Vista de documento")]);
+        vista_button.set_tooltip_text(Some(&i18n::tr("View Markdown as a document")));
+        vista_button
+            .update_property(&[gtk::accessible::Property::Label(&i18n::tr("Document view"))]);
         vista_button.set_visible(false);
-        let fuente_button = gtk::ToggleButton::with_label("Fuente");
+        let fuente_button = gtk::ToggleButton::with_label(&i18n::tr("Source"));
         fuente_button.add_css_class("flat");
-        fuente_button.set_tooltip_text(Some("Ver el código Markdown"));
-        fuente_button.update_property(&[gtk::accessible::Property::Label("Fuente Markdown")]);
+        fuente_button.set_tooltip_text(Some(&i18n::tr("View Markdown source")));
+        fuente_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+            "Markdown source",
+        ))]);
         fuente_button.set_visible(false);
         fuente_button.set_group(Some(&vista_button));
 
@@ -212,11 +220,11 @@ impl Viewer {
         header.append(&outline_button);
         header.append(&editor_button);
 
-        let banner = libadwaita::Banner::new("Archivo grande: resaltado limitado.");
+        let banner = libadwaita::Banner::new(&i18n::tr("Large file: limited highlighting."));
         banner.set_revealed(false);
 
         let search_entry = gtk::SearchEntry::new();
-        search_entry.set_placeholder_text(Some("Buscar en el archivo…"));
+        search_entry.set_placeholder_text(Some(&i18n::tr("Search in file…")));
         search_entry.set_hexpand(true);
         let search_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         search_box.set_margin_start(8);
@@ -278,7 +286,7 @@ impl Viewer {
 
         let pages = gtk::Stack::new();
         pages.set_vexpand(true);
-        pages.add_titled(&file_page, Some("file"), "Archivo");
+        pages.add_titled(&file_page, Some("file"), &i18n::tr("File"));
         stack_switcher.set_stack(Some(&pages));
 
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -698,7 +706,7 @@ impl Viewer {
                 self.vista_button.set_visible(false);
                 self.fuente_button.set_visible(false);
                 self.show_status(
-                    "No se pudo abrir el archivo",
+                    &i18n::tr("Could not open the file"),
                     &error.to_string(),
                     "dialog-error-symbolic",
                 );
@@ -725,8 +733,8 @@ impl Viewer {
                 self.vista_button.set_visible(false);
                 self.fuente_button.set_visible(false);
                 self.show_status(
-                    "Archivo binario",
-                    "No se muestra contenido binario en el visor.",
+                    &i18n::tr("Binary file"),
+                    &i18n::tr("Binary content is not shown in the viewer."),
                     "application-x-executable-symbolic",
                 );
                 self.root.set_visible(true);
@@ -734,21 +742,23 @@ impl Viewer {
                 return;
             }
             LoadMode::LargeFile => {
-                self.banner
-                    .set_title("Archivo grande: se muestra el primer bloque en texto plano.");
+                self.banner.set_title(&i18n::tr(
+                    "Large file: the first block is shown as plain text.",
+                ));
                 self.banner.set_revealed(true);
             }
             LoadMode::NonUtf8 => {
-                self.banner
-                    .set_title("El archivo no es UTF-8: se muestra como texto plano.");
+                self.banner.set_title(&i18n::tr(
+                    "The file is not UTF-8: it is shown as plain text.",
+                ));
                 self.banner.set_revealed(true);
             }
             LoadMode::Normal => {}
         }
         if document.line_count() > 10_000 {
-            self.banner.set_title(
-                "Archivo grande: el resaltado y el esquema se calculan en segundo plano.",
-            );
+            self.banner.set_title(&i18n::tr(
+                "Large file: highlighting and outline are computed in the background.",
+            ));
             self.banner.set_revealed(true);
         }
 
@@ -1063,9 +1073,9 @@ impl Viewer {
             return;
         };
         let Some(editor) = termust_host_exec::find_editor() else {
-            self.toast.add_toast(libadwaita::Toast::new(
-                "No se encontró un editor permitido (code, codium, zed, gnome-text-editor).",
-            ));
+            self.toast.add_toast(libadwaita::Toast::new(&i18n::tr(
+                "No allowed editor found (code, codium, zed, gnome-text-editor).",
+            )));
             return;
         };
         match termust_host_exec::editor_argv(&editor, &path, termust_host_exec::is_flatpak()) {
@@ -1073,14 +1083,17 @@ impl Viewer {
                 let mut command = std::process::Command::new(&argv[0]);
                 command.args(&argv[1..]);
                 if let Err(error) = command.spawn() {
-                    self.toast.add_toast(libadwaita::Toast::new(&format!(
-                        "No se pudo abrir el editor: {error}"
+                    self.toast.add_toast(libadwaita::Toast::new(&i18n::tr_args(
+                        "Could not open the editor: {error}",
+                        &[("error", &error.to_string())],
                     )));
                 }
             }
             Err(error) => {
-                self.toast
-                    .add_toast(libadwaita::Toast::new(&format!("Editor inválido: {error}")));
+                self.toast.add_toast(libadwaita::Toast::new(&i18n::tr_args(
+                    "Invalid editor: {error}",
+                    &[("error", &error.to_string())],
+                )));
             }
         }
     }

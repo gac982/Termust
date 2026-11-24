@@ -12,6 +12,8 @@ use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
 use termust_fs_local::{self as fs, EntryKind, FileEntry};
 
+use crate::i18n;
+
 /// Acciones expuestas por fila. No hay ninguna destructiva (FR-4.6).
 #[cfg_attr(not(test), allow(dead_code))]
 pub const FILE_ACTIONS: &[&str] = &["navigate", "open-viewer", "open-external", "copy-path"];
@@ -182,10 +184,12 @@ impl FilePanel {
 
             let up = gtk::Button::builder()
                 .icon_name("go-up-symbolic")
-                .tooltip_text("Directorio superior")
+                .tooltip_text(i18n::tr("Parent directory"))
                 .build();
             up.add_css_class("flat");
-            up.update_property(&[gtk::accessible::Property::Label("Directorio superior")]);
+            up.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+                "Parent directory",
+            ))]);
 
             let path_label = gtk::Label::new(None);
             path_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -196,10 +200,11 @@ impl FilePanel {
 
             let menu_button = gtk::MenuButton::builder()
                 .icon_name("view-more-symbolic")
-                .tooltip_text("Opciones del panel")
+                .tooltip_text(i18n::tr("Panel options"))
                 .build();
             menu_button.add_css_class("flat");
-            menu_button.update_property(&[gtk::accessible::Property::Label("Opciones del panel")]);
+            menu_button
+                .update_property(&[gtk::accessible::Property::Label(&i18n::tr("Panel options"))]);
 
             let header = gtk::Box::new(gtk::Orientation::Horizontal, 4);
             header.append(&up);
@@ -207,7 +212,7 @@ impl FilePanel {
             header.append(&menu_button);
 
             let search = gtk::SearchEntry::new();
-            search.set_placeholder_text(Some("Filtrar archivos…"));
+            search.set_placeholder_text(Some(&i18n::tr("Filter files…")));
             search.set_size_request(200, -1);
 
             let root_store = gio::ListStore::new::<gio::FileInfo>();
@@ -320,7 +325,7 @@ impl FilePanel {
 
             let status = libadwaita::StatusPage::builder()
                 .icon_name("folder-open-symbolic")
-                .title("Carpeta vacía")
+                .title(i18n::tr("Empty folder"))
                 .build();
             status.set_vexpand(true);
 
@@ -469,7 +474,7 @@ impl FilePanel {
                     }
                     panel
                         .toast
-                        .add_toast(libadwaita::Toast::new("Ruta copiada"));
+                        .add_toast(libadwaita::Toast::new(&i18n::tr("Path copied")));
                 }
             });
         }
@@ -527,9 +532,15 @@ impl FilePanel {
         self.root.insert_action_group("file", Some(&group));
 
         let menu = gio::Menu::new();
-        menu.append(Some("Seguir el panel activo"), Some("file.follow"));
-        menu.append(Some("Mostrar archivos ocultos"), Some("file.hidden"));
-        menu.append(Some("Actualizar"), Some("file.refresh"));
+        menu.append(
+            Some(i18n::tr("Follow the active pane").as_str()),
+            Some("file.follow"),
+        );
+        menu.append(
+            Some(i18n::tr("Show hidden files").as_str()),
+            Some("file.hidden"),
+        );
+        menu.append(Some(i18n::tr("Refresh").as_str()), Some("file.refresh"));
         menu_button.set_menu_model(Some(&menu));
     }
 
@@ -636,7 +647,7 @@ impl FilePanel {
                 self.cache.replace(Vec::new());
                 self.fill(&[]);
                 self.show_status(
-                    "No se pudo leer la carpeta",
+                    &i18n::tr("Could not read the folder"),
                     &error.to_string(),
                     "dialog-error-symbolic",
                 );
@@ -652,8 +663,8 @@ impl FilePanel {
             self.fill(&entries);
             if entries.is_empty() {
                 self.show_status(
-                    "Carpeta vacía",
-                    "No hay archivos para mostrar.",
+                    &i18n::tr("Empty folder"),
+                    &i18n::tr("There are no files to show."),
                     "folder-symbolic",
                 );
             }
@@ -663,8 +674,8 @@ impl FilePanel {
             self.fill(&filtered);
             if filtered.is_empty() {
                 self.show_status(
-                    "Sin coincidencias",
-                    &format!("Ningún archivo coincide con «{query}»."),
+                    &i18n::tr("No matches"),
+                    &i18n::tr_args("No files match “{query}”.", &[("query", &query)]),
                     "edit-find-symbolic",
                 );
             }
@@ -678,8 +689,8 @@ impl FilePanel {
         if infos.is_empty() {
             if self.stack.visible_child_name().as_deref() != Some("status") {
                 self.show_status(
-                    "Sin archivos",
-                    "No hay archivos para mostrar.",
+                    &i18n::tr("No files"),
+                    &i18n::tr("There are no files to show."),
                     "folder-symbolic",
                 );
             }
@@ -913,8 +924,9 @@ impl FilePanel {
         let toast = self.toast.clone();
         launcher.launch(parent.as_ref(), None::<&gio::Cancellable>, move |result| {
             if let Err(error) = result {
-                toast.add_toast(libadwaita::Toast::new(&format!(
-                    "No se pudo abrir: {error}"
+                toast.add_toast(libadwaita::Toast::new(&i18n::tr_args(
+                    "Could not open: {error}",
+                    &[("error", &error.to_string())],
                 )));
             }
         });
@@ -938,27 +950,27 @@ impl FilePanel {
         if is_directory && !is_navigable(&info) {
             // Fila no navegable: solo copiar ruta.
         } else if is_navigable(&info) {
-            let open = gio::MenuItem::new(Some("Abrir carpeta"), None);
+            let open = gio::MenuItem::new(Some(i18n::tr("Open folder").as_str()), None);
             open.set_action_and_target_value(
                 Some("file.navigate"),
                 Some(&encode_path(&path).to_variant()),
             );
             menu.append_item(&open);
         } else {
-            let viewer = gio::MenuItem::new(Some("Abrir en visor"), None);
+            let viewer = gio::MenuItem::new(Some(i18n::tr("Open in viewer").as_str()), None);
             viewer.set_action_and_target_value(
                 Some("file.open-viewer"),
                 Some(&encode_path(&path).to_variant()),
             );
             menu.append_item(&viewer);
-            let open = gio::MenuItem::new(Some("Abrir con aplicación externa"), None);
+            let open = gio::MenuItem::new(Some(i18n::tr("Open with external app").as_str()), None);
             open.set_action_and_target_value(
                 Some("file.open-external"),
                 Some(&encode_path(&path).to_variant()),
             );
             menu.append_item(&open);
         }
-        let copy = gio::MenuItem::new(Some("Copiar ruta"), None);
+        let copy = gio::MenuItem::new(Some(i18n::tr("Copy path").as_str()), None);
         copy.set_action_and_target_value(
             Some("file.copy-path"),
             Some(&encode_path(&path).to_variant()),

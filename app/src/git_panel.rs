@@ -2,6 +2,7 @@
 
 use crate::git_async::listen;
 use crate::git_host::HostGitRunner;
+use crate::i18n;
 use gtk4 as gtk;
 use libadwaita::prelude::*;
 use std::cell::{Cell, RefCell};
@@ -54,8 +55,10 @@ impl GitPanel {
     pub fn new(toast: libadwaita::ToastOverlay) -> Rc<Self> {
         let back = gtk::Button::from_icon_name("go-previous-symbolic");
         back.add_css_class("flat");
-        back.update_property(&[gtk::accessible::Property::Label("Volver al terminal")]);
-        back.set_tooltip_text(Some("Volver al terminal"));
+        back.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
+            "Back to terminal",
+        ))]);
+        back.set_tooltip_text(Some(&i18n::tr("Back to terminal")));
         let repo_label = gtk::Label::new(None);
         repo_label.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
         repo_label.set_xalign(0.0);
@@ -66,11 +69,11 @@ impl GitPanel {
         branch_label.add_css_class("caption");
         let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
         refresh.add_css_class("flat");
-        refresh.update_property(&[gtk::accessible::Property::Label("Actualizar")]);
-        refresh.set_tooltip_text(Some("Actualizar"));
-        let remotes_button = gtk::Button::with_label("Remotes");
+        refresh.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Refresh"))]);
+        refresh.set_tooltip_text(Some(&i18n::tr("Refresh")));
+        let remotes_button = gtk::Button::with_label(&i18n::tr("Remotes"));
         remotes_button.add_css_class("flat");
-        let push_button = gtk::Button::with_label("Push");
+        let push_button = gtk::Button::with_label(&i18n::tr("Push"));
         push_button.add_css_class("suggested-action");
 
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -94,13 +97,13 @@ impl GitPanel {
             .child(&list)
             .build();
 
-        let stage = gtk::Button::with_label("Stage");
+        let stage = gtk::Button::with_label(&i18n::tr("Stage"));
         stage.add_css_class("flat");
-        let unstage = gtk::Button::with_label("Unstage");
+        let unstage = gtk::Button::with_label(&i18n::tr("Unstage"));
         unstage.add_css_class("flat");
-        let stage_all = gtk::Button::with_label("Stage all");
+        let stage_all = gtk::Button::with_label(&i18n::tr("Stage all"));
         stage_all.add_css_class("flat");
-        let unstage_all = gtk::Button::with_label("Unstage all");
+        let unstage_all = gtk::Button::with_label(&i18n::tr("Unstage all"));
         unstage_all.add_css_class("flat");
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         actions.set_margin_top(4);
@@ -122,10 +125,10 @@ impl GitPanel {
         diff_path.set_xalign(0.0);
         diff_path.set_hexpand(true);
         diff_path.add_css_class("caption");
-        let staged_toggle = gtk::ToggleButton::with_label("Staged");
+        let staged_toggle = gtk::ToggleButton::with_label(&i18n::tr("Staged"));
         staged_toggle.add_css_class("flat");
-        staged_toggle.set_tooltip_text(Some("Ver el diff del index"));
-        let load_more = gtk::Button::with_label("Cargar más");
+        staged_toggle.set_tooltip_text(Some(&i18n::tr("View the index diff")));
+        let load_more = gtk::Button::with_label(&i18n::tr("Load more"));
         load_more.add_css_class("flat");
         load_more.set_visible(false);
         let diff_header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
@@ -165,15 +168,15 @@ impl GitPanel {
         paned.set_vexpand(true);
 
         let subject = gtk::Entry::new();
-        subject.set_placeholder_text(Some("Asunto del commit (≤50)"));
+        subject.set_placeholder_text(Some(&i18n::tr("Commit subject (≤50)")));
         subject.set_hexpand(true);
         let body = gtk::Entry::new();
-        body.set_placeholder_text(Some("Cuerpo opcional (líneas ≤72)"));
+        body.set_placeholder_text(Some(&i18n::tr("Optional body (lines ≤72)")));
         body.set_hexpand(true);
-        let hint = gtk::Label::new(Some("Asunto 0/50"));
+        let hint = gtk::Label::new(Some(&i18n::tr("Subject 0/50")));
         hint.add_css_class("dim-label");
         hint.add_css_class("caption");
-        let commit_button = gtk::Button::with_label("Commit");
+        let commit_button = gtk::Button::with_label(&i18n::tr("Commit"));
         commit_button.add_css_class("suggested-action");
         commit_button.set_sensitive(false);
         let commit_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
@@ -495,8 +498,8 @@ impl GitPanel {
         let (staged, unstaged) = split_staged(&status.files);
         if !status.files.is_empty() {
             for (label, count) in [
-                ("Preparados", staged.len()),
-                ("Sin preparar", unstaged.len()),
+                (&i18n::tr("Staged"), staged.len()),
+                (&i18n::tr("Unstaged"), unstaged.len()),
             ] {
                 if count == 0 {
                     continue;
@@ -537,7 +540,7 @@ impl GitPanel {
         if status.files.is_empty() {
             let row = gtk::ListBoxRow::new();
             row.set_selectable(false);
-            let label = gtk::Label::new(Some("Sin cambios"));
+            let label = gtk::Label::new(Some(&i18n::tr("No changes")));
             label.add_css_class("dim-label");
             row.set_child(Some(&label));
             self.list.append(&row);
@@ -615,7 +618,7 @@ impl GitPanel {
         self.load_more.set_visible(diff.truncated);
         if diff.binary {
             self.diff_buffer
-                .set_text("Archivo binario: no se muestra el diff.");
+                .set_text(&i18n::tr("Binary file: the diff is not shown."));
             return;
         }
         crate::diff_render::fill_diff_buffer(&self.diff_buffer, &diff);
@@ -689,8 +692,9 @@ impl GitPanel {
     fn commit(self: &Rc<Self>) {
         let message = self.message();
         if message.trim().is_empty() {
-            self.toast
-                .add_toast(libadwaita::Toast::new("El mensaje de commit está vacío"));
+            self.toast.add_toast(libadwaita::Toast::new(&i18n::tr(
+                "The commit message is empty",
+            )));
             return;
         }
         if self.busy.get() {
@@ -742,15 +746,17 @@ impl GitPanel {
     fn update_commit_hint(&self) {
         let message = self.message();
         let hint = commit_hint(&message);
-        let text = format!(
-            "Asunto {}/50 · cuerpo ≤72{}",
-            hint.subject_len,
-            if hint.body_line_too_long {
-                " · línea larga"
-            } else {
-                ""
-            }
-        );
+        let text = if hint.body_line_too_long {
+            i18n::tr_args(
+                "Subject {count}/50 · body ≤72 · long line",
+                &[("count", &hint.subject_len.to_string())],
+            )
+        } else {
+            i18n::tr_args(
+                "Subject {count}/50 · body ≤72",
+                &[("count", &hint.subject_len.to_string())],
+            )
+        };
         self.hint.set_text(&text);
         if hint.subject_too_long || hint.body_line_too_long {
             self.hint.add_css_class("warning");
@@ -767,11 +773,11 @@ impl GitPanel {
 
     fn show_remotes(self: &Rc<Self>) {
         let Some(repo) = self.repo.borrow().clone() else {
-            self.show_error("No hay repositorio");
+            self.show_error(&i18n::tr("No repository"));
             return;
         };
         let dialog = libadwaita::Dialog::new();
-        dialog.set_title("Remotes");
+        dialog.set_title(&i18n::tr("Remotes"));
         let content = gtk::Box::new(gtk::Orientation::Vertical, 8);
         content.set_margin_top(12);
         content.set_margin_bottom(12);
@@ -803,7 +809,7 @@ impl GitPanel {
             line.append(&text);
             let remove = gtk::Button::from_icon_name("user-trash-symbolic");
             remove.add_css_class("flat");
-            remove.set_tooltip_text(Some("Eliminar remoto"));
+            remove.set_tooltip_text(Some(&i18n::tr("Remove remote")));
             let repo_root = repo.root.clone();
             let name_value = remote.name.clone();
             let weak = self.self_weak.clone();
@@ -824,7 +830,7 @@ impl GitPanel {
             list.append(&row);
         }
         if self.remotes.borrow().is_empty() {
-            let label = gtk::Label::new(Some("Sin remotos"));
+            let label = gtk::Label::new(Some(&i18n::tr("No remotes")));
             label.add_css_class("dim-label");
             list.append(&label);
         }
@@ -837,11 +843,13 @@ impl GitPanel {
         content.append(&scroller);
 
         let name = gtk::Entry::new();
-        name.set_placeholder_text(Some("Nombre (origin)"));
+        name.set_placeholder_text(Some(&i18n::tr("Name (origin)")));
         let url = gtk::Entry::new();
-        url.set_placeholder_text(Some("https://host/repo.git o git@host:repo.git"));
+        url.set_placeholder_text(Some(&i18n::tr(
+            "https://host/repo.git or git@host:repo.git",
+        )));
         url.set_hexpand(true);
-        let add = gtk::Button::with_label("Agregar");
+        let add = gtk::Button::with_label(&i18n::tr("Add"));
         add.add_css_class("suggested-action");
         let form = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         form.append(&name);
@@ -877,7 +885,7 @@ impl GitPanel {
 
     fn push_now(self: &Rc<Self>) {
         let Some(repo) = self.repo.borrow().clone() else {
-            self.show_error("No hay repositorio");
+            self.show_error(&i18n::tr("No repository"));
             return;
         };
         let (branch, detached) = self
@@ -887,7 +895,7 @@ impl GitPanel {
             .map(|status| (status.branch.head.clone(), status.branch.detached))
             .unwrap_or_default();
         if branch.is_empty() || detached {
-            self.show_error("No hay una rama actual para pushear");
+            self.show_error(&i18n::tr("There is no current branch to push"));
             return;
         }
         let remotes = self.remotes.borrow().clone();
@@ -897,7 +905,7 @@ impl GitPanel {
             .or_else(|| remotes.first())
             .cloned()
         else {
-            self.show_error("No hay remotos configurados");
+            self.show_error(&i18n::tr("No remotes configured"));
             return;
         };
         let url = if remote.push_url.is_empty() {
@@ -942,20 +950,23 @@ impl GitPanel {
         branch: String,
     ) {
         let username = gtk::Entry::new();
-        username.set_placeholder_text(Some("Usuario"));
+        username.set_placeholder_text(Some(&i18n::tr("Username")));
         let password = gtk::PasswordEntry::new();
-        password.set_placeholder_text(Some("Token o contraseña"));
+        password.set_placeholder_text(Some(&i18n::tr("Token or password")));
         password.set_show_peek_icon(true);
         let box_ = gtk::Box::new(gtk::Orientation::Vertical, 6);
         box_.append(&username);
         box_.append(&password);
         let dialog = libadwaita::AlertDialog::builder()
-            .title("Credenciales HTTPS")
-            .body(format!("Se guardarán cifradas en el vault para {origin}."))
+            .title(i18n::tr("HTTPS credentials"))
+            .body(i18n::tr_args(
+                "They will be stored encrypted in the vault for {origin}.",
+                &[("origin", &origin)],
+            ))
             .extra_child(&box_)
             .build();
-        dialog.add_response("cancel", "Cancelar");
-        dialog.add_response("save", "Guardar y pushear");
+        dialog.add_response("cancel", &i18n::tr("Cancel"));
+        dialog.add_response("save", &i18n::tr("Save and push"));
         dialog.set_response_appearance("save", libadwaita::ResponseAppearance::Suggested);
         let weak = self.self_weak.clone();
         let toast = self.toast.clone();
@@ -969,7 +980,9 @@ impl GitPanel {
             let user = username.text().to_string();
             let pass = password.text().to_string();
             if user.trim().is_empty() || pass.is_empty() {
-                toast.add_toast(libadwaita::Toast::new("Usuario y token son obligatorios"));
+                toast.add_toast(libadwaita::Toast::new(&i18n::tr(
+                    "Username and token are required",
+                )));
                 return;
             }
             match crate::remotes::save_credentials(&origin, &user, pass.as_bytes()) {

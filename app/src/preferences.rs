@@ -36,7 +36,7 @@ pub struct PreferencesController {
 impl PreferencesController {
     pub fn new(appearance: Rc<Appearance>) -> Rc<Self> {
         let dialog = PreferencesDialog::new();
-        dialog.set_title("Preferences");
+        dialog.set_title(&i18n::tr("Preferences"));
 
         let page = PreferencesPage::builder()
             .title(i18n::tr("Appearance"))
@@ -47,7 +47,7 @@ impl PreferencesController {
         let theme_ids: Vec<String> = std::iter::once(AUTO_THEME.to_string())
             .chain(appearance.themes().iter().map(|theme| theme.id.clone()))
             .collect();
-        let names: Vec<String> = std::iter::once("Seguir al sistema".to_string())
+        let names: Vec<String> = std::iter::once(i18n::tr("Follow system"))
             .chain(appearance.themes().iter().map(display_name))
             .collect();
         let strings = gtk::StringList::new(&names.iter().map(String::as_str).collect::<Vec<_>>());
@@ -432,12 +432,17 @@ impl PreferencesController {
     fn update_warning(&self) {
         let warning = self.appearance.contrast_warning();
         if let Some((ratio, high)) = warning {
+            let ratio = format!("{ratio:.1}");
             let text = if high {
-                format!("Contraste efectivo {ratio:.1}:1 por debajo de 4.5:1.")
+                i18n::tr_args(
+                    "Effective contrast {ratio}:1 is below 4.5:1.",
+                    &[("ratio", &ratio)],
+                )
             } else {
-                format!(
-                    "Con esta transparencia el contraste efectivo baja a {ratio:.1}:1 \
-                     (mínimo 4.5:1). Se recomienda reducirla."
+                i18n::tr_args(
+                    "With this transparency the effective contrast drops to {ratio}:1 \
+                     (minimum 4.5:1). Reducing it is recommended.",
+                    &[("ratio", &ratio)],
                 )
             };
             self.warning.set_text(&text);
@@ -523,9 +528,9 @@ pub fn restore_session_switch() -> Option<(libadwaita::SwitchRow, gio::Settings)
     }
     let settings = gio::Settings::new(termust_core::APP_ID);
     let row = libadwaita::SwitchRow::builder()
-        .title(i18n::tr("Restaurar la sesión al iniciar"))
+        .title(i18n::tr("Restore the session on startup"))
         .subtitle(i18n::tr(
-            "Pestañas, paneles y directorios de la última sesión",
+            "Tabs, panes, and directories from the last session",
         ))
         .active(settings.boolean("restore-session"))
         .build();
@@ -540,17 +545,61 @@ pub fn restore_session_switch() -> Option<(libadwaita::SwitchRow, gio::Settings)
 
 /// Agrega la página «General» al diálogo de preferencias.
 pub fn add_session_page(dialog: &PreferencesDialog) {
-    let Some((row, _settings)) = restore_session_switch() else {
-        return;
-    };
     let page = PreferencesPage::builder()
         .title(i18n::tr("General"))
         .icon_name("preferences-system-symbolic")
         .build();
-    let group = PreferencesGroup::builder()
-        .title(i18n::tr("Sesión"))
-        .build();
-    group.add(&row);
-    page.add(&group);
+
+    if let Some((row, _settings)) = restore_session_switch() {
+        let group = PreferencesGroup::builder()
+            .title(i18n::tr("Session"))
+            .build();
+        group.add(&row);
+        page.add(&group);
+    }
+
+    if let Some(row) = language_row() {
+        let group = PreferencesGroup::builder()
+            .title(i18n::tr("Language"))
+            .build();
+        group.add(&row);
+        page.add(&group);
+    }
+
     dialog.add(&page);
+}
+
+fn language_row() -> Option<ComboRow> {
+    let source = gio::SettingsSchemaSource::default()?;
+    let schema = source.lookup(termust_core::APP_ID, true)?;
+    if !schema.has_key("language") {
+        return None;
+    }
+    let settings = gio::Settings::new(termust_core::APP_ID);
+    let names = [
+        i18n::tr("System"),
+        "English".to_string(),
+        "Español".to_string(),
+    ];
+    let strings = gtk::StringList::new(&names.iter().map(String::as_str).collect::<Vec<_>>());
+    let selected = match settings.string("language").as_str() {
+        "en" => 1,
+        "es" => 2,
+        _ => 0,
+    };
+    let row = ComboRow::builder()
+        .title(i18n::tr("Language"))
+        .subtitle(i18n::tr("Restart Termust to apply the language."))
+        .model(&strings)
+        .selected(selected as u32)
+        .build();
+    row.connect_selected_notify(move |row| {
+        let value = match row.selected() {
+            1 => "en",
+            2 => "es",
+            _ => "system",
+        };
+        let _ = settings.set_string("language", value);
+    });
+    Some(row)
 }

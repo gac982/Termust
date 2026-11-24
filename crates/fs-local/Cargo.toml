@@ -7,5 +7,6 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+termust-i18n.workspace = true
 libc.workspace = true
 

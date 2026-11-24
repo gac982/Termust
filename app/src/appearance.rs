@@ -14,6 +14,8 @@ use termust_core::theme::{
 };
 use termust_text_render::{FontSpec, Theme as TextTheme};
 
+use crate::i18n;
+
 pub const AUTO_THEME: &str = CORE_AUTO_THEME;
 
 const KEY_THEME: &str = "theme";
@@ -477,8 +479,8 @@ fn fallback_theme() -> Theme {
 /// Nombre para mostrar en listas.
 pub fn display_name(theme: &Theme) -> String {
     match theme.variant {
-        ThemeVariant::Dark => format!("{}  ·  oscuro", theme.name),
-        ThemeVariant::Light => format!("{}  ·  claro", theme.name),
+        ThemeVariant::Dark => format!("{}  ·  {}", theme.name, i18n::tr("dark")),
+        ThemeVariant::Light => format!("{}  ·  {}", theme.name, i18n::tr("light")),
     }
 }
 

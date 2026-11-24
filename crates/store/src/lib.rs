@@ -266,17 +266,17 @@ impl Session {
 
     pub fn into_snapshot(self) -> Result<SessionSnapshot, String> {
         if self.tabs.is_empty() {
-            return Err("la sesión no tiene pestañas".into());
+            return Err(termust_i18n::tr("the session has no tabs"));
         }
         if self.active_tab >= self.tabs.len() {
-            return Err("pestaña activa fuera de rango".into());
+            return Err(termust_i18n::tr("active tab out of range"));
         }
         let mut tabs = Vec::with_capacity(self.tabs.len());
         for tab in self.tabs {
             let layout = tab.layout.into_tree()?;
             let leaves = layout.leaves();
             if leaves.len() > MAX_PANES {
-                return Err("la pestaña supera 4 paneles".into());
+                return Err(termust_i18n::tr("the tab has more than 4 panes"));
             }
             if !leaves.contains(&tab.active_pane) {
                 return Err("panel activo inexistente".into());
@@ -296,7 +296,7 @@ impl Session {
                     return Err("panel duplicado".into());
                 }
                 if pane.cwd.is_empty() {
-                    return Err("cwd vacío".into());
+                    return Err(termust_i18n::tr("empty cwd"));
                 }
                 panes.push(PaneSnapshot {
                     id: pane.id,

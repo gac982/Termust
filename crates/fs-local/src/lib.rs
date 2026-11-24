@@ -44,10 +44,25 @@ pub enum FsError {
 impl std::fmt::Display for FsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FsError::NotFound(path) => write!(f, "No existe: {}", path.display()),
-            FsError::NotADirectory(path) => write!(f, "No es un directorio: {}", path.display()),
+            FsError::NotFound(path) => write!(
+                f,
+                "{}: {}",
+                termust_i18n::tr("Does not exist"),
+                path.display()
+            ),
+            FsError::NotADirectory(path) => write!(
+                f,
+                "{}: {}",
+                termust_i18n::tr("Not a directory"),
+                path.display()
+            ),
             FsError::PermissionDenied(path) => {
-                write!(f, "Sin permisos para leer {}", path.display())
+                write!(
+                    f,
+                    "{}: {}",
+                    termust_i18n::tr("No permission to read"),
+                    path.display()
+                )
             }
             FsError::Io(message) => write!(f, "{message}"),
         }
