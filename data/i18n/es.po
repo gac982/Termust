@@ -1,356 +1,360 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: termust 0.14.0\n"
+"Project-Id-Version: termust 1.2.3\n"
 "Language: es\n"
+"PO-Revision-Date: 2026-11-24 00:00-0400\n"
+"Last-Translator: Termust contributors\n"
+"Language-Team: Spanish\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-
-msgid "Dividir a la derecha"
-msgstr "Dividir a la derecha"
-
-msgid "Dividir abajo"
-msgstr "Dividir abajo"
-
-msgid "Diseños"
-msgstr "Diseños"
-
-msgid "Dos columnas"
-msgstr "Dos columnas"
-
-msgid "Dos filas"
-msgstr "Dos filas"
-
-msgid "Tres columnas"
-msgstr "Tres columnas"
-
-msgid "Cuadrícula 2×2"
+msgid "2×2 grid"
 msgstr "Cuadrícula 2×2"
 
-msgid "Tema de la pestaña"
-msgstr "Tema de la pestaña"
-
-msgid "Tema global"
-msgstr "Tema global"
-
-msgid "Preferencias"
-msgstr "Preferencias"
-
-msgid "Atajos de teclado"
-msgstr "Atajos de teclado"
-
-msgid "Acerca de Termust"
-msgstr "Acerca de Termust"
-
-msgid "Historial de comandos"
-msgstr "Historial de comandos"
-
-msgid "Borrar historial"
-msgstr "Borrar historial"
-
-msgid "Renombrar pestaña"
-msgstr "Renombrar pestaña"
-
-msgid "Cerrar panel"
-msgstr "Cerrar panel"
-
-msgid "Apariencia"
-msgstr "Apariencia"
-
-msgid "Tema"
-msgstr "Tema"
-
-msgid "Sigue al sistema o fuerza una paleta"
-msgstr "Sigue al sistema o fuerza una paleta"
-
-msgid "Tema oscuro"
-msgstr "Tema oscuro"
-
-msgid "Se usa cuando el sistema está en modo oscuro"
-msgstr "Se usa cuando el sistema está en modo oscuro"
-
-msgid "Tema claro"
-msgstr "Tema claro"
-
-msgid "Se usa cuando el sistema está en modo claro"
-msgstr "Se usa cuando el sistema está en modo claro"
-
-msgid "Contraste"
-msgstr "Contraste"
-
-msgid "Contraste del tema"
-msgstr "Contraste del tema"
-
-msgid "Transparencia"
-msgstr "Transparencia"
-
-msgid "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %."
-msgstr "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %."
-
-msgid "Transparencia del fondo"
-msgstr "Transparencia del fondo"
-
-msgid "Solo el fondo del terminal; sin desenfoque"
-msgstr "Solo el fondo del terminal; sin desenfoque"
-
-msgid "Desactivado por alto contraste"
-msgstr "Desactivado por alto contraste"
-
-msgid "Texto"
-msgstr "Texto"
-
-msgid "Zoom de fuente"
-msgstr "Zoom de fuente"
-
-msgid "General"
-msgstr "General"
-
-msgid "Sesión"
-msgstr "Sesión"
-
-msgid "Restaurar la sesión al iniciar"
-msgstr "Restaurar la sesión al iniciar"
-
-msgid "Pestañas, paneles y directorios de la última sesión"
-msgstr "Pestañas, paneles y directorios de la última sesión"
-
-msgid "Temas importados"
-msgstr "Temas importados"
-
-msgid "Errores de importación"
-msgstr "Errores de importación"
-
-msgid "Los archivos de ~/.config/termust/themes se ignoraron."
-msgstr "Los archivos de ~/.config/termust/themes se ignoraron."
-
-msgid "Buscar en el historial…"
-msgstr "Buscar en el historial…"
-
-msgid "No hay pestaña activa"
-msgstr "No hay pestaña activa"
-
-msgid "El comando es multilínea y el shell no soporta bracketed paste."
-msgstr "El comando es multilínea y el shell no soporta bracketed paste."
-
-msgid "Historial de comandos borrado"
-msgstr "Historial de comandos borrado"
-
-msgid "No se pudo iniciar el terminal"
-msgstr "No se pudo iniciar el terminal"
-
-msgid "Sesión restaurada. Los procesos no se restauran."
-msgstr "Sesión restaurada. Los procesos no se restauran."
-
-msgid "La sesión guardada no es válida; se inició una nueva."
-msgstr "La sesión guardada no es válida; se inició una nueva."
-
-msgid "No se pudo leer la sesión guardada; se inició una nueva."
-msgstr "No se pudo leer la sesión guardada; se inició una nueva."
-
-msgid "La sesión guardada es de una versión más nueva; se ignoró."
-msgstr "La sesión guardada es de una versión más nueva; se ignoró."
-
-msgid "No hay pestaña activa."
-msgstr "No hay pestaña activa."
-
-msgid "El visor estará disponible próximamente."
-msgstr "El visor estará disponible próximamente."
-
-msgid "Cerrar con proceso activo"
-msgstr "Cerrar con proceso activo"
-
-msgid "Hay un proceso en ejecución. Si cierras, se terminará."
+msgid "A process is running. Closing will terminate it."
 msgstr "Hay un proceso en ejecución. Si cierras, se terminará."
 
-msgid "Cancel"
-msgstr "Cancel"
+msgid "About Termust"
+msgstr "Acerca de Termust"
 
-msgid "Close"
-msgstr "Close"
+msgid "Appearance"
+msgstr "Apariencia"
 
-msgid "Rename"
-msgstr "Rename"
-
-msgid "Pestañas"
-msgstr "Pestañas"
-
-msgid "Paneles"
-msgstr "Paneles"
-
-msgid "Aplicación"
+msgid "Application"
 msgstr "Aplicación"
 
-msgid "Nueva pestaña"
-msgstr "Nueva pestaña"
-
-msgid "Cerrar pestaña"
-msgstr "Cerrar pestaña"
-
-msgid "Pestaña siguiente"
-msgstr "Pestaña siguiente"
-
-msgid "Pestaña anterior"
-msgstr "Pestaña anterior"
-
-msgid "Mover pestaña a la izquierda"
-msgstr "Mover pestaña a la izquierda"
-
-msgid "Mover pestaña a la derecha"
-msgstr "Mover pestaña a la derecha"
-
-msgid "Dividir panel a la derecha"
-msgstr "Dividir panel a la derecha"
-
-msgid "Dividir panel abajo"
-msgstr "Dividir panel abajo"
-
-msgid "Enfocar panel a la izquierda"
-msgstr "Enfocar panel a la izquierda"
-
-msgid "Enfocar panel a la derecha"
-msgstr "Enfocar panel a la derecha"
-
-msgid "Enfocar panel arriba"
-msgstr "Enfocar panel arriba"
-
-msgid "Enfocar panel abajo"
-msgstr "Enfocar panel abajo"
-
-msgid "Redimensionar a la izquierda"
-msgstr "Redimensionar a la izquierda"
-
-msgid "Redimensionar a la derecha"
-msgstr "Redimensionar a la derecha"
-
-msgid "Redimensionar arriba"
-msgstr "Redimensionar arriba"
-
-msgid "Redimensionar abajo"
-msgstr "Redimensionar abajo"
-
-msgid "Zoom acercar"
-msgstr "Zoom acercar"
-
-msgid "Zoom alejar"
-msgstr "Zoom alejar"
-
-msgid "Restablecer zoom"
-msgstr "Restablecer zoom"
-
-msgid "Pantalla completa"
-msgstr "Pantalla completa"
-
-msgid "Panel de archivos"
-msgstr "Panel de archivos"
-
-msgid "Pestañas verticales"
-msgstr "Pestañas verticales"
-
-msgid "Git"
-msgstr "Git"
-
-msgid "Atajos"
-msgstr "Atajos"
-
-msgid "Preferencias del terminal"
-msgstr "Preferencias del terminal"
-
-msgid "Terminal"
-msgstr "Terminal"
-
-msgid "Documentación"
-msgstr "Documentación"
-
-msgid "Sitio web"
-msgstr "Sitio web"
-
-msgid "Reportar un problema"
-msgstr "Reportar un problema"
-
-msgid "Versión"
-msgstr "Versión"
-
-msgid "Licencia"
-msgstr "Licencia"
-
-msgid "Directorio superior"
-msgstr "Directorio superior"
-
-msgid "Opciones del panel"
-msgstr "Opciones del panel"
-
-msgid "Buscar"
-msgstr "Buscar"
-
-msgid "Esquema del archivo"
-msgstr "Esquema del archivo"
-
-msgid "Abrir en editor externo"
-msgstr "Abrir en editor externo"
-
-msgid "Actualizar"
-msgstr "Actualizar"
-
-msgid "Volver al terminal"
+msgid "Back to terminal"
 msgstr "Volver al terminal"
 
-msgid "Vista general de pestañas"
-msgstr "Vista general de pestañas"
+msgid "Background transparency"
+msgstr "Transparencia del fondo"
 
-msgid "Archivo"
-msgstr "Archivo"
+msgid "Binary file: the diff is not shown."
+msgstr "Archivo binario: no se muestra el diff."
+
+msgid "Cancel"
+msgstr "Cancelar"
+
+msgid "Clear history"
+msgstr "Borrar historial"
+
+msgid "Close"
+msgstr "Cerrar"
+
+msgid "Close pane"
+msgstr "Cerrar panel"
+
+msgid "Close tab"
+msgstr "Cerrar pestaña"
+
+msgid "Close with a running process"
+msgstr "Cerrar con proceso activo"
+
+msgid "Command history"
+msgstr "Historial de comandos"
+
+msgid "Command history cleared"
+msgstr "Historial de comandos borrado"
+
+msgid "Computing diff…"
+msgstr "Calculando diff…"
+
+msgid "Contrast"
+msgstr "Contraste"
+
+msgid "Could not compute the diff"
+msgstr "No se pudo calcular el diff"
+
+msgid "Could not read the saved session; a new one was started."
+msgstr "No se pudo leer la sesión guardada; se inició una nueva."
+
+msgid "Could not start the terminal"
+msgstr "No se pudo iniciar el terminal"
+
+msgid "Dark theme"
+msgstr "Tema oscuro"
 
 msgid "Diff"
 msgstr "Diff"
 
+msgid "Disabled by high contrast"
+msgstr "Desactivado por alto contraste"
+
+msgid "Documentation"
+msgstr "Documentación"
+
+msgid "File"
+msgstr "Archivo"
+
+msgid "File outline"
+msgstr "Esquema del archivo"
+
+msgid "File panel"
+msgstr "Panel de archivos"
+
+msgid "Files in ~/.config/termust/themes were ignored."
+msgstr "Los archivos de ~/.config/termust/themes se ignoraron."
+
+msgid "Focus pane down"
+msgstr "Enfocar panel abajo"
+
+msgid "Focus pane left"
+msgstr "Enfocar panel a la izquierda"
+
+msgid "Focus pane right"
+msgstr "Enfocar panel a la derecha"
+
+msgid "Focus pane up"
+msgstr "Enfocar panel arriba"
+
+msgid "Follow the system or force a palette"
+msgstr "Sigue al sistema o fuerza una paleta"
+
+msgid "Font zoom"
+msgstr "Zoom de fuente"
+
+msgid "Fullscreen"
+msgstr "Pantalla completa"
+
+msgid "General"
+msgstr "General"
+
+msgid "Git"
+msgstr "Git"
+
+msgid "Global theme"
+msgstr "Tema global"
+
+msgid "Import errors"
+msgstr "Errores de importación"
+
+msgid "Imported themes"
+msgstr "Temas importados"
+
 msgid "Index"
-msgstr "Index"
+msgstr "Índice"
 
-msgid "Ver el diff del index"
-msgstr "Ver el diff del index"
+msgid "Keyboard shortcuts"
+msgstr "Atajos de teclado"
 
-msgid "Actualizar diff"
-msgstr "Actualizar diff"
+msgid "Layouts"
+msgstr "Diseños"
 
-msgid "Calculando diff…"
-msgstr "Calculando diff…"
+msgid "License"
+msgstr "Licencia"
 
-msgid "Este archivo no está en un repositorio git"
-msgstr "Este archivo no está en un repositorio git"
+msgid "Light theme"
+msgstr "Tema claro"
 
-msgid "Sin diferencias"
+msgid "Move tab left"
+msgstr "Mover pestaña a la izquierda"
+
+msgid "Move tab right"
+msgstr "Mover pestaña a la derecha"
+
+msgid "New tab"
+msgstr "Nueva pestaña"
+
+msgid "Next tab"
+msgstr "Pestaña siguiente"
+
+msgid "No active tab"
+msgstr "No hay pestaña activa"
+
+msgid "No active tab."
+msgstr "No hay pestaña activa."
+
+msgid "No differences"
 msgstr "Sin diferencias"
 
-msgid "Archivo binario: no se muestra el diff."
-msgstr "Archivo binario: no se muestra el diff."
+msgid "Open in external editor"
+msgstr "Abrir en editor externo"
 
-msgid "No se pudo calcular el diff"
-msgstr "No se pudo calcular el diff"
+msgid "Panel options"
+msgstr "Opciones del panel"
 
-msgid "Diff truncado"
-msgstr "Diff truncado"
+msgid "Panes"
+msgstr "Paneles"
 
-msgid "El archivo no existe"
-msgstr "El archivo no existe"
+msgid "Parent directory"
+msgstr "Directorio superior"
 
-msgid "Tipografía"
-msgstr "Tipografía"
-
-msgid "Solo el terminal"
-msgstr "Solo el terminal"
-
-msgid "Tipografía y tamaño solo del terminal."
-msgstr "Tipografía y tamaño solo del terminal."
-
-msgid "Tamaño"
-msgstr "Tamaño"
-
-msgid "Puntos; el zoom se aplica encima"
+msgid "Points; zoom is applied on top"
 msgstr "Puntos; el zoom se aplica encima"
 
-msgid "Predeterminada del sistema"
+msgid "Preferences"
+msgstr "Preferencias"
+
+msgid "Preview"
+msgstr "Vista previa"
+
+msgid "Previous tab"
+msgstr "Pestaña anterior"
+
+msgid "Refresh"
+msgstr "Actualizar"
+
+msgid "Refresh diff"
+msgstr "Actualizar diff"
+
+msgid "Rename"
+msgstr "Renombrar"
+
+msgid "Rename tab"
+msgstr "Renombrar pestaña"
+
+msgid "Report an issue"
+msgstr "Reportar un problema"
+
+msgid "Reset zoom"
+msgstr "Restablecer zoom"
+
+msgid "Resize down"
+msgstr "Redimensionar abajo"
+
+msgid "Resize left"
+msgstr "Redimensionar a la izquierda"
+
+msgid "Resize right"
+msgstr "Redimensionar a la derecha"
+
+msgid "Resize up"
+msgstr "Redimensionar arriba"
+
+msgid "Restore the session on startup"
+msgstr "Restaurar la sesión al iniciar"
+
+msgid "Search"
+msgstr "Buscar"
+
+msgid "Search history…"
+msgstr "Buscar en el historial…"
+
+msgid "Session"
+msgstr "Sesión"
+
+msgid "Session restored. Processes are not restored."
+msgstr "Sesión restaurada. Los procesos no se restauran."
+
+msgid "Shortcuts"
+msgstr "Atajos"
+
+msgid "Size"
+msgstr "Tamaño"
+
+msgid "Split down"
+msgstr "Dividir abajo"
+
+msgid "Split pane down"
+msgstr "Dividir panel abajo"
+
+msgid "Split pane right"
+msgstr "Dividir panel a la derecha"
+
+msgid "Split right"
+msgstr "Dividir a la derecha"
+
+msgid "System default"
 msgstr "Predeterminada del sistema"
 
-msgid "Vista previa"
-msgstr "Vista previa"
+msgid "Tab overview"
+msgstr "Vista general de pestañas"
+
+msgid "Tab theme"
+msgstr "Tema de la pestaña"
+
+msgid "Tabs"
+msgstr "Pestañas"
+
+msgid "Tabs, panes and directories from the last session"
+msgstr "Pestañas, paneles y directorios de la última sesión"
+
+msgid "Terminal"
+msgstr "Terminal"
+
+msgid "Terminal background only. The header bar and panels stay opaque; 80% max."
+msgstr "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %."
+
+msgid "Terminal background only; no blur"
+msgstr "Solo el fondo del terminal; sin desenfoque"
+
+msgid "Terminal only"
+msgstr "Solo el terminal"
+
+msgid "Terminal preferences"
+msgstr "Preferencias del terminal"
+
+msgid "Text"
+msgstr "Texto"
+
+msgid "The command is multiline and the shell does not support bracketed paste."
+msgstr "El comando es multilínea y el shell no soporta bracketed paste."
+
+msgid "The file does not exist"
+msgstr "El archivo no existe"
+
+msgid "The saved session is from a newer version; it was ignored."
+msgstr "La sesión guardada es de una versión más nueva; se ignoró."
+
+msgid "The saved session is invalid; a new one was started."
+msgstr "La sesión guardada no es válida; se inició una nueva."
+
+msgid "The viewer will be available soon."
+msgstr "El visor estará disponible próximamente."
+
+msgid "Theme"
+msgstr "Tema"
+
+msgid "Theme contrast"
+msgstr "Contraste del tema"
+
+msgid "This file is not in a git repository"
+msgstr "Este archivo no está en un repositorio git"
+
+msgid "Three columns"
+msgstr "Tres columnas"
+
+msgid "Transparency"
+msgstr "Transparencia"
+
+msgid "Truncated diff"
+msgstr "Diff truncado"
+
+msgid "Two columns"
+msgstr "Dos columnas"
+
+msgid "Two rows"
+msgstr "Dos filas"
+
+msgid "Typography"
+msgstr "Tipografía"
+
+msgid "Typography and size apply to the terminal only."
+msgstr "Tipografía y tamaño solo del terminal."
+
+msgid "Used when the system is in dark mode"
+msgstr "Se usa cuando el sistema está en modo oscuro"
+
+msgid "Used when the system is in light mode"
+msgstr "Se usa cuando el sistema está en modo claro"
+
+msgid "Version"
+msgstr "Versión"
+
+msgid "Vertical tabs"
+msgstr "Pestañas verticales"
+
+msgid "View the index diff"
+msgstr "Ver el diff del index"
+
+msgid "Website"
+msgstr "Sitio web"
+
+msgid "Zoom in"
+msgstr "Zoom acercar"
+
+msgid "Zoom out"
+msgstr "Zoom alejar"
+

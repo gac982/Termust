@@ -64,5 +64,10 @@
       <summary>Escala de fuente</summary>
       <description>Multiplicador del tamaño de fuente del terminal (zoom).</description>
     </key>
+    <key name="language" type="s">
+      <default>'system'</default>
+      <summary>Idioma de la interfaz</summary>
+      <description>system, en o es. Se aplica al reiniciar.</description>
+    </key>
   </schema>
 </schemalist>

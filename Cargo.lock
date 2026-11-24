@@ -1396,7 +1396,6 @@ name = "termust-app"
 version = "1.2.3"
 dependencies = [
  "cairo-rs",
- "gettext-rs",
  "gtk4",
  "libadwaita",
  "libc",
@@ -1408,6 +1407,7 @@ dependencies = [
  "termust-git-local",
  "termust-git-remote",
  "termust-host-exec",
+ "termust-i18n",
  "termust-pty-unix",
  "termust-render-cairo",
  "termust-store",
@@ -1461,6 +1461,13 @@ name = "termust-host-pty"
 version = "1.2.3"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "termust-i18n"
+version = "1.2.3"
+dependencies = [
+ "gettext-rs",
 ]
 
 [[package]]

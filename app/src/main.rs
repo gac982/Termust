@@ -220,7 +220,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                             "Sesión restaurada; algunos directorios no existían y se usó $HOME."
                                 .into()
                         } else {
-                            "Sesión restaurada. Los procesos no se restauran.".into()
+                            "Session restored. Processes are not restored.".into()
                         });
                         Ok(manager)
                     }
@@ -233,19 +233,19 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 },
                 Err(e) => {
                     eprintln!("termust: sesión inválida: {e}");
-                    notice = Some("La sesión guardada no es válida; se inició una nueva.".into());
+                    notice = Some("The saved session is invalid; a new one was started.".into());
                     make_fresh()
                 }
             }
         }
         termust_store::LoadResult::Corrupt(e) => {
             eprintln!("termust: sesión corrupta: {e}");
-            notice = Some("No se pudo leer la sesión guardada; se inició una nueva.".into());
+            notice = Some("Could not read the saved session; a new one was started.".into());
             make_fresh()
         }
         termust_store::LoadResult::FutureVersion(version) => {
             eprintln!("termust: sesión con schema v{version} no soportado");
-            notice = Some("La sesión guardada es de una versión más nueva; se ignoró.".into());
+            notice = Some("The saved session is from a newer version; it was ignored.".into());
             make_fresh()
         }
         termust_store::LoadResult::Missing => make_fresh(),
@@ -329,10 +329,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     install_css();
     let new_tab = gtk::Button::builder()
         .icon_name("tab-new-symbolic")
-        .tooltip_text("Nueva pestaña")
+        .tooltip_text("New tab")
         .build();
     new_tab.add_css_class("flat");
-    new_tab.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Nueva pestaña"))]);
+    new_tab.update_property(&[gtk::accessible::Property::Label(&i18n::tr("New tab"))]);
     {
         let manager = manager.clone();
         let home = home.clone();
@@ -350,18 +350,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .active(files_visible)
         .build();
     files_button.add_css_class("flat");
-    files_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
-        "Panel de archivos",
-    ))]);
+    files_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("File panel"))]);
     let tabs_button = gtk::ToggleButton::builder()
         .icon_name("view-list-symbolic")
         .tooltip_text("Pestañas verticales (Ctrl+Shift+L)")
         .active(vertical_visible)
         .build();
     tabs_button.add_css_class("flat");
-    tabs_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
-        "Pestañas verticales",
-    ))]);
+    tabs_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Vertical tabs"))]);
     let git_button = gtk::ToggleButton::builder()
         .label("Git")
         .tooltip_text("Git (Ctrl+Shift+G)")
@@ -374,12 +370,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     header.pack_start(&git_button);
     let overview_button = gtk::ToggleButton::builder()
         .icon_name("view-grid-symbolic")
-        .tooltip_text(i18n::tr("Vista general de pestañas"))
+        .tooltip_text(i18n::tr("Tab overview"))
         .build();
     overview_button.add_css_class("flat");
-    overview_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr(
-        "Vista general de pestañas",
-    ))]);
+    overview_button.update_property(&[gtk::accessible::Property::Label(&i18n::tr("Tab overview"))]);
     header.pack_start(&overview_button);
     let tab_bar = manager.borrow().tab_bar().clone();
     tab_bar.set_hexpand(true);
@@ -658,7 +652,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 };
                 let theme_id = if id == AUTO_THEME { None } else { Some(id) };
                 if !manager.borrow_mut().set_active_tab_theme(theme_id) {
-                    toast.add_toast(libadwaita::Toast::new("No hay pestaña activa"));
+                    toast.add_toast(libadwaita::Toast::new("No active tab"));
                 }
             });
         }
@@ -669,7 +663,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let toast = toast_overlay.clone();
             clear_history.connect_activate(move |_, _| {
                 index.borrow_mut().clear();
-                toast.add_toast(libadwaita::Toast::new("Historial de comandos borrado"));
+                toast.add_toast(libadwaita::Toast::new("Command history cleared"));
             });
         }
         group.add_action(&clear_history);
@@ -735,33 +729,33 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
 
         let menu = gtk::gio::Menu::new();
         menu.append(
-            Some(i18n::tr("Dividir a la derecha").as_str()),
+            Some(i18n::tr("Split right").as_str()),
             Some("pane.split-right"),
         );
         menu.append(
-            Some(i18n::tr("Dividir abajo").as_str()),
+            Some(i18n::tr("Split down").as_str()),
             Some("pane.split-down"),
         );
         let designs = gtk::gio::Menu::new();
         designs.append(
-            Some(i18n::tr("Dos columnas").as_str()),
+            Some(i18n::tr("Two columns").as_str()),
             Some("pane.preset-two-columns"),
         );
         designs.append(
-            Some(i18n::tr("Dos filas").as_str()),
+            Some(i18n::tr("Two rows").as_str()),
             Some("pane.preset-two-rows"),
         );
         designs.append(
-            Some(i18n::tr("Tres columnas").as_str()),
+            Some(i18n::tr("Three columns").as_str()),
             Some("pane.preset-three-columns"),
         );
         designs.append(
-            Some(i18n::tr("Cuadrícula 2×2").as_str()),
+            Some(i18n::tr("2×2 grid").as_str()),
             Some("pane.preset-grid"),
         );
-        menu.append_submenu(Some(i18n::tr("Diseños").as_str()), &designs);
+        menu.append_submenu(Some(i18n::tr("Layouts").as_str()), &designs);
         let themes_menu = gtk::gio::Menu::new();
-        let global_theme = gtk::gio::MenuItem::new(Some(i18n::tr("Tema global").as_str()), None);
+        let global_theme = gtk::gio::MenuItem::new(Some(i18n::tr("Global theme").as_str()), None);
         global_theme
             .set_action_and_target_value(Some("pane.tab-theme"), Some(&AUTO_THEME.to_variant()));
         themes_menu.append_item(&global_theme);
@@ -770,33 +764,30 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             item.set_action_and_target_value(Some("pane.tab-theme"), Some(&theme.id.to_variant()));
             themes_menu.append_item(&item);
         }
-        menu.append_submenu(Some(i18n::tr("Tema de la pestaña").as_str()), &themes_menu);
+        menu.append_submenu(Some(i18n::tr("Tab theme").as_str()), &themes_menu);
         menu.append(
-            Some(i18n::tr("Preferencias").as_str()),
+            Some(i18n::tr("Preferences").as_str()),
             Some("pane.preferences"),
         );
         menu.append(
-            Some(i18n::tr("Atajos de teclado").as_str()),
+            Some(i18n::tr("Keyboard shortcuts").as_str()),
             Some("pane.shortcuts"),
         );
+        menu.append(Some(i18n::tr("About Termust").as_str()), Some("pane.about"));
         menu.append(
-            Some(i18n::tr("Acerca de Termust").as_str()),
-            Some("pane.about"),
-        );
-        menu.append(
-            Some(i18n::tr("Historial de comandos").as_str()),
+            Some(i18n::tr("Command history").as_str()),
             Some("pane.history"),
         );
         menu.append(
-            Some(i18n::tr("Borrar historial").as_str()),
+            Some(i18n::tr("Clear history").as_str()),
             Some("pane.clear-history"),
         );
         menu.append(
-            Some(i18n::tr("Renombrar pestaña").as_str()),
+            Some(i18n::tr("Rename tab").as_str()),
             Some("pane.rename-tab"),
         );
         menu.append(
-            Some(i18n::tr("Cerrar panel").as_str()),
+            Some(i18n::tr("Close pane").as_str()),
             Some("pane.close-pane"),
         );
         let menu_button = gtk::MenuButton::builder()

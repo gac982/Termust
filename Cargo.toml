@@ -18,6 +18,7 @@ members = [
   "crates/agents",
   "crates/syntax",
   "crates/ui",
+  "crates/i18n",
   "crates/conformance",
 ]
 
@@ -43,6 +44,7 @@ termust-host-exec = { path = "crates/host-exec" }
 termust-agents = { path = "crates/agents" }
 termust-syntax = { path = "crates/syntax" }
 termust-ui = { path = "crates/ui" }
+termust-i18n = { path = "crates/i18n" }
 gtk4 = { version = "0.11.5", features = ["v4_10"] }
 libadwaita = { version = "0.9.2", features = ["v1_9"] }
 alacritty_terminal = "0.26.0"

@@ -36,14 +36,14 @@ pub struct PreferencesController {
 impl PreferencesController {
     pub fn new(appearance: Rc<Appearance>) -> Rc<Self> {
         let dialog = PreferencesDialog::new();
-        dialog.set_title("Preferencias");
+        dialog.set_title("Preferences");
 
         let page = PreferencesPage::builder()
-            .title(i18n::tr("Apariencia"))
+            .title(i18n::tr("Appearance"))
             .icon_name("applications-graphics-symbolic")
             .build();
 
-        let theme_group = PreferencesGroup::builder().title(i18n::tr("Tema")).build();
+        let theme_group = PreferencesGroup::builder().title(i18n::tr("Theme")).build();
         let theme_ids: Vec<String> = std::iter::once(AUTO_THEME.to_string())
             .chain(appearance.themes().iter().map(|theme| theme.id.clone()))
             .collect();
@@ -52,8 +52,8 @@ impl PreferencesController {
             .collect();
         let strings = gtk::StringList::new(&names.iter().map(String::as_str).collect::<Vec<_>>());
         let theme_row = ComboRow::builder()
-            .title(i18n::tr("Tema"))
-            .subtitle(i18n::tr("Sigue al sistema o fuerza una paleta"))
+            .title(i18n::tr("Theme"))
+            .subtitle(i18n::tr("Follow the system or force a palette"))
             .model(&strings)
             .build();
 
@@ -79,13 +79,13 @@ impl PreferencesController {
         let light_strings =
             gtk::StringList::new(&light_names.iter().map(String::as_str).collect::<Vec<_>>());
         let dark_row = ComboRow::builder()
-            .title(i18n::tr("Tema oscuro"))
-            .subtitle(i18n::tr("Se usa cuando el sistema está en modo oscuro"))
+            .title(i18n::tr("Dark theme"))
+            .subtitle(i18n::tr("Used when the system is in dark mode"))
             .model(&dark_strings)
             .build();
         let light_row = ComboRow::builder()
-            .title(i18n::tr("Tema claro"))
-            .subtitle(i18n::tr("Se usa cuando el sistema está en modo claro"))
+            .title(i18n::tr("Light theme"))
+            .subtitle(i18n::tr("Used when the system is in light mode"))
             .model(&light_strings)
             .build();
         dark_row.set_sensitive(false);
@@ -96,23 +96,23 @@ impl PreferencesController {
         page.add(&theme_group);
 
         let contrast_group = PreferencesGroup::builder()
-            .title(i18n::tr("Contraste"))
+            .title(i18n::tr("Contrast"))
             .build();
         let contrast_row = ActionRow::builder()
-            .title(i18n::tr("Contraste del tema"))
+            .title(i18n::tr("Theme contrast"))
             .build();
         contrast_group.add(&contrast_row);
         page.add(&contrast_group);
 
         let transparency_group = PreferencesGroup::builder()
-            .title(i18n::tr("Transparencia"))
+            .title(i18n::tr("Transparency"))
             .description(i18n::tr(
-                "Solo el fondo del terminal. La barra y los paneles quedan opacos; máximo 80 %.",
+                "Terminal background only. The header bar and panels stay opaque; 80% max.",
             ))
             .build();
         let opacity_row = ActionRow::builder()
-            .title(i18n::tr("Transparencia del fondo"))
-            .subtitle(i18n::tr("Solo el fondo del terminal; sin desenfoque"))
+            .title(i18n::tr("Background transparency"))
+            .subtitle(i18n::tr("Terminal background only; no blur"))
             .build();
         let opacity_scale = gtk::Scale::with_range(
             gtk::Orientation::Horizontal,
@@ -139,8 +139,8 @@ impl PreferencesController {
         page.add(&transparency_group);
 
         let text_group = PreferencesGroup::builder()
-            .title(i18n::tr("Texto"))
-            .description(i18n::tr("Tipografía y tamaño solo del terminal."))
+            .title(i18n::tr("Text"))
+            .description(i18n::tr("Typography and size apply to the terminal only."))
             .build();
         let mut families: Vec<String> = dialog
             .pango_context()
@@ -161,28 +161,28 @@ impl PreferencesController {
         }
         let mut font_ids = vec![String::new()];
         font_ids.extend(families.iter().cloned());
-        let font_names: Vec<String> = std::iter::once(i18n::tr("Predeterminada del sistema"))
+        let font_names: Vec<String> = std::iter::once(i18n::tr("System default"))
             .chain(families.iter().cloned())
             .collect();
         let font_strings =
             gtk::StringList::new(&font_names.iter().map(String::as_str).collect::<Vec<_>>());
         let font_row = ComboRow::builder()
-            .title(i18n::tr("Tipografía"))
-            .subtitle(i18n::tr("Solo el terminal"))
+            .title(i18n::tr("Typography"))
+            .subtitle(i18n::tr("Terminal only"))
             .model(&font_strings)
             .build();
 
         let size_row = SpinRow::with_range(6.0, 32.0, 0.5);
-        size_row.set_title(&i18n::tr("Tamaño"));
-        size_row.set_subtitle(&i18n::tr("Puntos; el zoom se aplica encima"));
+        size_row.set_title(&i18n::tr("Size"));
+        size_row.set_subtitle(&i18n::tr("Points; zoom is applied on top"));
         size_row.set_digits(1);
 
         let preview = gtk::Label::new(None);
-        let preview_row = ActionRow::builder().title(i18n::tr("Vista previa")).build();
+        let preview_row = ActionRow::builder().title(i18n::tr("Preview")).build();
         preview_row.add_suffix(&preview);
 
         let zoom_row = SpinRow::with_range(0.5, 2.0, 0.1);
-        zoom_row.set_title(&i18n::tr("Zoom de fuente"));
+        zoom_row.set_title(&i18n::tr("Font zoom"));
         zoom_row.set_subtitle("Ctrl + / Ctrl − / Ctrl 0");
         zoom_row.set_digits(1);
         text_group.add(&font_row);
@@ -194,14 +194,12 @@ impl PreferencesController {
 
         if !appearance.import_errors().is_empty() {
             let errors_page = PreferencesPage::builder()
-                .title(i18n::tr("Temas importados"))
+                .title(i18n::tr("Imported themes"))
                 .icon_name("dialog-warning-symbolic")
                 .build();
             let group = PreferencesGroup::builder()
-                .title(i18n::tr("Errores de importación"))
-                .description(i18n::tr(
-                    "Los archivos de ~/.config/termust/themes se ignoraron.",
-                ))
+                .title(i18n::tr("Import errors"))
+                .description(i18n::tr("Files in ~/.config/termust/themes were ignored."))
                 .build();
             for error in appearance.import_errors() {
                 let label = gtk::Label::new(Some(error));
@@ -387,9 +385,9 @@ impl PreferencesController {
         let high = self.appearance.high_contrast();
         self.opacity_scale.set_sensitive(!high);
         self.opacity_row.set_subtitle(if high {
-            "Desactivado por alto contraste"
+            "Disabled by high contrast"
         } else {
-            "Solo el fondo del terminal; sin desenfoque"
+            "Terminal background only; no blur"
         });
         let family = self.appearance.font_family();
         let font_index = self

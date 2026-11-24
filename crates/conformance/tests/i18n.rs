@@ -27,30 +27,37 @@ fn parse_po(path: &Path) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn i18n_catalog_has_spanish_and_english() {
+fn i18n_catalog_has_spanish_translations() {
     let root = repo_root();
     let es = parse_po(&root.join("data/i18n/es.po"));
-    let en = parse_po(&root.join("data/i18n/en.po"));
-    assert!(es.len() >= 60, "catálogo es demasiado chico: {}", es.len());
+    assert!(es.len() >= 116, "catálogo es demasiado chico: {}", es.len());
     assert_eq!(
-        es.keys().collect::<Vec<_>>(),
-        en.keys().collect::<Vec<_>>(),
-        "msgids distintos entre es y en"
+        es.get("Preferences").map(String::as_str),
+        Some("Preferencias")
+    );
+    assert_eq!(
+        es.get("File panel").map(String::as_str),
+        Some("Panel de archivos")
     );
     for (id, value) in &es {
-        assert_eq!(id, value, "es debe devolver el msgid");
+        assert!(!value.is_empty(), "traducción vacía para {id}");
+        if id != "Español" {
+            assert!(
+                !id.chars().any(|c| "áéíóúñÁÉÍÓÚÑ¿¡".contains(c)),
+                "msgid con acento español: {id}"
+            );
+        }
     }
-    let translated = en.iter().filter(|(id, value)| *id != *value).count();
     assert!(
-        translated >= 60,
-        "solo {translated} cadenas traducidas al inglés"
+        !root.join("data/i18n/en.po").exists(),
+        "en.po ya no debe existir: el inglés es el msgid"
     );
-    assert_eq!(
-        en.get("Preferencias").map(String::as_str),
-        Some("Preferences")
-    );
-    assert_eq!(
-        en.get("Panel de archivos").map(String::as_str),
-        Some("File panel")
-    );
+}
+
+#[test]
+fn gsettings_has_language_key() {
+    let root = repo_root();
+    let schema =
+        std::fs::read_to_string(root.join("data/io.github.gac982.Termust.gschema.xml")).unwrap();
+    assert!(schema.contains("<key name=\"language\" type=\"s\">"));
 }
