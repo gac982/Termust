@@ -24,4 +24,8 @@ else
 fi
 flatpak build-bundle "$DIST/repo" "$DIST/termust-$VERSION.flatpak" "$APP_ID"
 ( cd "$DIST" && sha256sum "termust-$VERSION.flatpak" "termust-$VERSION.cdx.json" > SHA256SUMS )
+if flatpak remote-info --user termust-origin "$APP_ID" >/dev/null 2>&1; then
+    flatpak install --user -y --reinstall termust-origin "$APP_ID" >/dev/null 2>&1 ||
+        echo "AVISO: no se pudo realinear el origen a termust-origin" >&2
+fi
 echo "release: $DIST/termust-$VERSION.flatpak"
