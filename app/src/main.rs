@@ -2554,7 +2554,8 @@ fn main() {}
                     let app4 = app3.clone();
                     let root3 = root2.clone();
                     glib::timeout_add_local_once(Duration::from_millis(900), move || {
-                        let missing = view4.status_text().contains("no existe");
+                        let missing_text = i18n::tr("The file does not exist");
+                        let missing = view4.status_text().contains(&missing_text);
                         ok &= !view4.is_loading() && view4.line_count() == 0 && missing;
                         eprintln!(
                             "termust-diffview-test: faltante={} {}",
