@@ -3331,7 +3331,9 @@ fn main() {}
         });
     }
 
-    let read_only = std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
+    // `--no-restore` y los hooks de test no deben pisar la sesión real.
+    let read_only =
+        no_restore || testing || std::env::var_os("TERMUST_SESSION_NO_RESTORE_TEST").is_some();
     if !read_only {
         let session_path = termust_store::session_path();
         let saver = SessionSaver::start(session_path.clone());
