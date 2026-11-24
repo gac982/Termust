@@ -17,7 +17,10 @@ cargo test -p termust-conformance --test architecture
 echo "== stage 3: app id =="
 cargo test -p termust-conformance --test app_id
 
-echo "== stage 4: workspace tests =="
+echo "== stage 4: i18n =="
+python3 scripts/check-i18n.py
+
+echo "== stage 5: workspace tests =="
 cargo test --workspace
 
 echo "verify: OK"
