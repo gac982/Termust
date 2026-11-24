@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.3.2-blue">
+  <img alt="version" src="https://img.shields.io/badge/version-1.3.3-blue">
   <img alt="license" src="https://img.shields.io/badge/license-GPL--3.0--or--later-green">
   <img alt="platform" src="https://img.shields.io/badge/platform-Linux%20%7C%20GNOME-4a86cf">
   <img alt="runtime" src="https://img.shields.io/badge/Flatpak-org.gnome.Platform-4a86cf">
@@ -99,10 +99,10 @@ language and can be changed in Preferences → General; restart to apply.
 
 ### Flatpak (bundle)
 
-Download `termust-1.3.2.flatpak` from the releases page and run:
+Download `termust-1.3.3.flatpak` from the releases page and run:
 
 ```sh
-flatpak install --user ./termust-1.3.2.flatpak
+flatpak install --user ./termust-1.3.3.flatpak
 flatpak run io.github.gac982.Termust
 ```
 
