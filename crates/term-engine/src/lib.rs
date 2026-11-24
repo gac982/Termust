@@ -175,8 +175,12 @@ impl TerminalEngine for AlacrittyEngine {
         let content = self.term.renderable_content();
         let mut cells = vec![Cell::default(); self.size.area()];
 
+        // display_iter usa 0 para la primera fila de la pantalla actual y
+        // valores negativos para el scrollback. Hay que sumar display_offset
+        // para mapearlo a las filas visibles; si no, el scrollback se descarta.
+        let offset = content.display_offset as i32;
         for indexed in content.display_iter {
-            let line = indexed.point.line.0;
+            let line = indexed.point.line.0 + offset;
             let col = indexed.point.column.0;
             if line < 0 || col >= self.size.cols {
                 continue;
@@ -206,9 +210,11 @@ impl TerminalEngine for AlacrittyEngine {
             size: self.size,
             cells,
             cursor: Cursor {
-                row: content.cursor.point.line.0.max(0) as usize,
+                row: (content.cursor.point.line.0 + offset).max(0) as usize,
                 col: content.cursor.point.column.0,
-                visible: content.cursor.shape != CursorShape::Hidden,
+                visible: content.cursor.shape != CursorShape::Hidden
+                    && content.cursor.point.line.0 + offset >= 0
+                    && content.cursor.point.line.0 + offset < self.size.rows as i32,
             },
             modes: Modes {
                 alt_screen: content.mode.contains(TermMode::ALT_SCREEN),
@@ -261,6 +267,9 @@ impl TerminalEngine for AlacrittyEngine {
     fn history_ready(&mut self) -> bool {
         let content = self.term.renderable_content();
         if content.mode.contains(TermMode::ALT_SCREEN) || self.vi_mode {
+            return false;
+        }
+        if content.display_offset > 0 {
             return false;
         }
         if self.osc.prompt().state != PromptState::AtPrompt {
@@ -361,6 +370,18 @@ mod tests {
         e.feed(b"\x1b[1;3;4mB\x1b[0m");
         let c = e.snapshot().cell(0, 0).cloned().unwrap();
         assert!(c.attrs.bold && c.attrs.italic && c.attrs.underline);
+    }
+
+    #[test]
+    fn scrolling_renders_scrollback() {
+        let mut e = engine();
+        for i in 0..10 {
+            e.feed(format!("line{i}\r\n").as_bytes());
+        }
+        assert!(e.scroll(3));
+        let s = e.snapshot();
+        let rows: Vec<String> = (0..s.size.rows).map(|row| s.row_text(row)).collect();
+        assert_eq!(rows, vec!["line3", "line4", "line5", "line6", "line7"]);
     }
 
     #[test]
