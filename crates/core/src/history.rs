@@ -24,6 +24,7 @@ pub struct HistoryEntry {
     pub exit_code: Option<i32>,
     pub source: HistorySource,
     pub last_used: u64,
+    pub sequence: u64,
 }
 
 impl HistoryEntry {
@@ -41,6 +42,7 @@ impl HistoryEntry {
             exit_code,
             source,
             last_used: 0,
+            sequence: 0,
         }
     }
 }
@@ -97,11 +99,13 @@ impl HistoryIndex {
                     existing.source = HistorySource::Session;
                 }
                 existing.last_used = clock;
+                existing.sequence = clock;
             }
             let new_cost = entry_cost(&self.entries[pos]);
             self.bytes = self.bytes.saturating_add(new_cost).saturating_sub(old_cost);
         } else {
             entry.last_used = clock;
+            entry.sequence = clock;
             self.bytes += entry_cost(&entry);
             self.entries.push(entry);
         }
@@ -129,7 +133,7 @@ impl HistoryIndex {
             let Some(score) = score(&text, &query) else {
                 continue;
             };
-            matches.push((score, entry.last_used, entry));
+            matches.push((score, entry.sequence, entry));
         }
         matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
         matches
@@ -352,13 +356,38 @@ mod tests {
     }
 
     #[test]
-    fn touch_changes_lru_order() {
+    fn search_empty_returns_latest_first() {
+        let mut index = HistoryIndex::new();
+        index.insert(session("one", "/"));
+        index.insert(session("two", "/"));
+        index.insert(session("three", "/"));
+        let results = index.search("", 10);
+        assert_eq!(
+            results.iter().map(|e| e.text.as_str()).collect::<Vec<_>>(),
+            vec!["three", "two", "one"]
+        );
+    }
+
+    #[test]
+    fn touch_does_not_reorder_history() {
         let mut index = HistoryIndex::new();
         index.insert(session("one", "/"));
         index.insert(session("two", "/"));
         index.touch("one");
         let results = index.search("", 10);
+        assert_eq!(results[0].text, "two");
+        assert_eq!(results[1].text, "one");
+    }
+
+    #[test]
+    fn reinsert_moves_command_to_top() {
+        let mut index = HistoryIndex::new();
+        index.insert(session("one", "/"));
+        index.insert(session("two", "/"));
+        index.insert(session("one", "/"));
+        let results = index.search("", 10);
         assert_eq!(results[0].text, "one");
+        assert_eq!(results[1].text, "two");
     }
 
     #[test]
