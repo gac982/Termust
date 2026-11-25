@@ -1,5 +1,7 @@
 //! Renderer Cairo/Pango para la grilla del terminal.
 
+use std::collections::HashMap;
+
 use cairo::Context;
 use pango::{FontDescription, Layout};
 use pangocairo::functions::{create_layout, show_layout};
@@ -15,7 +17,7 @@ impl CairoRenderer {
 
     fn font_desc(font: &FontSpec, bold: bool, italic: bool) -> FontDescription {
         let mut fd = FontDescription::new();
-        fd.set_family(&font.family);
+        fd.set_family(&family_list(&font.family));
         // `set_size` interpreta el valor en puntos (como GNOME Console); usar
         // `set_absolute_size` lo tomaba como píxeles y dejaba la letra chica.
         fd.set_size((font.size * pango::SCALE as f64).round() as i32);
@@ -67,6 +69,7 @@ impl TextRenderer for CairoRenderer {
         ctx.paint().ok();
 
         let layout = Self::make_layout(ctx, &opts.font, false, false);
+        let mut glyph_layouts: HashMap<(char, bool, bool), Layout> = HashMap::new();
 
         for row in 0..snapshot.size.rows {
             let mut col = 0;
@@ -147,8 +150,36 @@ impl TextRenderer for CairoRenderer {
                         fg.g as f64 / 255.0,
                         fg.b as f64 / 255.0,
                     );
-                    ctx.move_to(x, y);
-                    show_layout(ctx, &layout);
+                    let advance = layout_advance(&layout);
+                    if run_fits_grid(advance, end - col, cw) {
+                        ctx.move_to(x, y);
+                        show_layout(ctx, &layout);
+                    } else {
+                        // Un glifo de fallback con otro ancho (braille, emoji,
+                        // simbolos) corre todo el tramo y rompe los graficos de
+                        // btop/htop: en ese caso cada celda va a su columna.
+                        for c in col..end {
+                            let Some(cell) = snapshot.cell(row, c) else {
+                                break;
+                            };
+                            if cell.attrs.wide_spacer || cell.attrs.hidden {
+                                continue;
+                            }
+                            let key = (cell.ch, cell.attrs.bold, cell.attrs.italic);
+                            let l = glyph_layouts.entry(key).or_insert_with(|| {
+                                let l = Self::make_layout(
+                                    ctx,
+                                    &opts.font,
+                                    cell.attrs.bold,
+                                    cell.attrs.italic,
+                                );
+                                l.set_text(&cell.ch.to_string());
+                                l
+                            });
+                            ctx.move_to(c as f64 * cw, y);
+                            show_layout(ctx, l);
+                        }
+                    }
 
                     if cell.attrs.underline {
                         ctx.set_line_width(1.0);
@@ -177,6 +208,36 @@ impl TextRenderer for CairoRenderer {
             ctx.fill().ok();
         }
     }
+}
+
+/// Los glifos que la fuente elegida no tiene (braille, bloques, cajas) caen a
+/// otra familia. Si esa familia es proporcional su avance no coincide con la
+/// celda y el texto se corre celda a celda; por eso el fallback es monospace.
+fn family_list(family: &str) -> String {
+    let family = family.trim();
+    if family.is_empty() {
+        return "monospace".to_string();
+    }
+    if family
+        .split(',')
+        .any(|f| f.trim().eq_ignore_ascii_case("monospace"))
+    {
+        return family.to_string();
+    }
+    format!("{family}, monospace")
+}
+
+fn layout_advance(layout: &Layout) -> f64 {
+    layout.extents().1.width() as f64 / pango::SCALE as f64
+}
+
+/// Pango redondea avances segun el hinting; un cuarto de pixel alcanza para
+/// tolerar esa variacion sin aceptar un glifo de otro ancho.
+const ADVANCE_TOLERANCE: f64 = 0.25;
+
+/// `true` si el tramo ocupa exactamente las celdas que le corresponden.
+fn run_fits_grid(advance: f64, cells: usize, cell_width: f64) -> bool {
+    cell_width > 0.0 && (advance - cells as f64 * cell_width).abs() <= ADVANCE_TOLERANCE
 }
 
 fn paints_background(cell: &Cell, selected: bool) -> bool {
@@ -361,6 +422,70 @@ mod tests {
         drop(ctx);
         let p = pixel(&mut s, (m.width * 0.5) as i32, (m.height * 0.5) as i32);
         assert_ne!((p.0, p.1, p.2), (theme.bg.r, theme.bg.g, theme.bg.b));
+    }
+
+    #[test]
+    fn run_fits_grid_checks_cell_pitch() {
+        assert!(run_fits_grid(30.0, 3, 10.0));
+        assert!(run_fits_grid(30.2, 3, 10.0));
+        assert!(!run_fits_grid(36.0, 3, 10.0));
+        assert!(!run_fits_grid(12.0, 1, 10.0));
+        assert!(!run_fits_grid(10.0, 1, 0.0));
+    }
+
+    #[test]
+    fn family_list_appends_monospace_fallback() {
+        assert_eq!(family_list("Hack"), "Hack, monospace");
+        assert_eq!(family_list(" Hack "), "Hack, monospace");
+        assert_eq!(family_list("Hack, monospace"), "Hack, monospace");
+        assert_eq!(family_list("monospace"), "monospace");
+        assert_eq!(family_list(""), "monospace");
+    }
+
+    #[test]
+    fn glyph_with_other_advance_does_not_shift_the_run() {
+        // Los espacios ideograficos avanzan mas que una celda; si el tramo se
+        // pinta de una sola vez el `X` se corre varias columnas (bug de los
+        // graficos braille de btop/htop con fuentes sin esos glifos).
+        let (mut s, ctx) = surface(60, 30);
+        let r = CairoRenderer::new();
+        let font = FontSpec {
+            family: "monospace".into(),
+            size: 12.0,
+        };
+        let m = r.metrics(&ctx, &font);
+        let theme = Theme::default();
+        let mut snap = blank_snapshot(5, 1);
+        snap.cursor.visible = false;
+        for cell in &mut snap.cells[..4] {
+            cell.ch = '\u{3000}';
+        }
+        snap.cells[4].ch = 'X';
+        for cell in snap.cells.iter_mut() {
+            cell.fg = Color::Rgb(Rgb::new(255, 255, 255));
+        }
+        r.paint(
+            &ctx,
+            &snap,
+            &theme,
+            &PaintOpts {
+                font,
+                ..PaintOpts::default()
+            },
+        );
+        drop(ctx);
+        let start = (m.width * 4.0) as i32;
+        let end = ((m.width * 5.0) as i32).min(59);
+        let ink = (start..end).any(|x| {
+            (0..(m.height as i32).min(30)).any(|y| {
+                let p = pixel(&mut s, x, y);
+                (p.0, p.1, p.2) != (theme.bg.r, theme.bg.g, theme.bg.b)
+            })
+        });
+        assert!(
+            ink,
+            "el glifo de la ultima celda se corrio fuera de su columna"
+        );
     }
 
     #[test]
