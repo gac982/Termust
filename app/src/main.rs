@@ -1466,6 +1466,33 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         });
     }
 
+    if std::env::var_os("TERMUST_TAB_TITLE_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1200), move || {
+            manager.borrow().send_active(b"sleep 6\n");
+            let manager = manager.clone();
+            let app = app.clone();
+            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+                let title = manager
+                    .borrow()
+                    .tab_summaries()
+                    .first()
+                    .map(|tab| tab.title.clone())
+                    .unwrap_or_default();
+                let ok = title.contains("· sleep");
+                eprintln!(
+                    "termust-tab-title: {title:?} {}",
+                    if ok { "ok" } else { "FAIL" }
+                );
+                if !ok {
+                    std::process::exit(1);
+                }
+                app.quit();
+            });
+        });
+    }
+
     if std::env::var_os("TERMUST_HISTORY_CAPTURE_TEST").is_some() {
         let manager = manager.clone();
         let app = app.clone();

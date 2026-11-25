@@ -667,6 +667,11 @@ impl TerminalView {
         self.engine.borrow().title().map(str::to_string)
     }
 
+    /// Comando que el shell reportó como en ejecución (OSC 133;C).
+    pub fn running_command(&self) -> Option<String> {
+        self.engine.borrow().running_command().map(str::to_string)
+    }
+
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.engine.borrow().cwd().cloned()
     }

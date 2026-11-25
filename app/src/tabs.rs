@@ -1094,7 +1094,9 @@ impl TabManager {
             let view = entry.panes.get(&active);
             let title = view.and_then(|view| view.title());
             let cwd = view.and_then(|view| view.cwd());
-            let foreground = view.and_then(|view| view.foreground_command());
+            let foreground = view
+                .and_then(|view| view.running_command())
+                .or_else(|| view.and_then(|view| view.foreground_command()));
             let exited = entry.panes.values().any(|view| view.exited());
             if let Some(view) = view {
                 let last = view.recent_lines(1).join(" ");

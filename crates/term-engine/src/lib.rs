@@ -246,6 +246,14 @@ impl TerminalEngine for AlacrittyEngine {
         self.osc.title()
     }
 
+    fn running_command(&self) -> Option<&str> {
+        self.pending
+            .as_ref()
+            .filter(|pending| pending.started)
+            .map(|pending| pending.text.trim())
+            .filter(|text| !text.is_empty())
+    }
+
     fn cwd(&self) -> Option<&PathBuf> {
         self.osc.cwd()
     }
@@ -434,6 +442,18 @@ mod tests {
         assert_eq!(history[1].text, "cargo test");
         assert_eq!(history[1].exit_code, Some(3));
         assert!(e.take_history().is_empty());
+    }
+
+    #[test]
+    fn running_command_follows_osc133_marks() {
+        let mut e = engine();
+        assert_eq!(e.running_command(), None);
+        e.feed(b"\x1b]133;A\x07\x1b]133;B\x07");
+        assert_eq!(e.running_command(), None);
+        e.feed(b"\x1b]633;E;btop\x07\x1b]133;C\x07");
+        assert_eq!(e.running_command(), Some("btop"));
+        e.feed(b"\x1b]133;D;0\x07");
+        assert_eq!(e.running_command(), None);
     }
 
     #[test]

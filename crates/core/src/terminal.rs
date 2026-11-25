@@ -173,6 +173,13 @@ pub trait TerminalEngine {
     fn cwd(&self) -> Option<&PathBuf>;
     fn prompt(&self) -> PromptStatus;
 
+    /// Comando que el shell está ejecutando ahora (OSC 133;C), si lo reporta.
+    /// Funciona aunque el PTY viva en el host (Flatpak), donde `/proc` no es
+    /// visible desde el sandbox.
+    fn running_command(&self) -> Option<&str> {
+        None
+    }
+
     /// Respuestas que el motor debe escribir de vuelta al PTY (DSR, DA, etc.).
     fn take_responses(&mut self) -> Vec<Vec<u8>> {
         Vec::new()
