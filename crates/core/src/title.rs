@@ -47,8 +47,8 @@ pub fn display_title(tab: &Tab, foreground: Option<&str>) -> TitleSpec {
     }
 }
 
-/// Texto de la pestaña: nombre manual, o `directorio · programa` cuando hay un
-/// proceso en foreground (btop, vim, etc.). Nunca la ruta completa ni el
+/// Texto de la pestaña: nombre manual, o el programa en ejecución cuando hay
+/// uno (btop, vim, etc.), o el directorio actual. Nunca la ruta completa ni el
 /// título OSC del shell.
 pub fn tab_label(tab: &Tab, foreground: Option<&str>) -> String {
     let mut full = tab
@@ -57,18 +57,15 @@ pub fn tab_label(tab: &Tab, foreground: Option<&str>) -> String {
         .map(sanitize)
         .unwrap_or_default();
     if full.is_empty() {
+        if let Some(command) = foreground.and_then(command_name) {
+            full = sanitize(command);
+        }
+    }
+    if full.is_empty() {
         full = sanitize(&basename(&tab.cwd));
     }
     if full.is_empty() {
         full = "Terminal".to_string();
-    }
-    if tab.title_override.is_none() {
-        if let Some(command) = foreground.and_then(command_name) {
-            let command = sanitize(command);
-            if !command.is_empty() {
-                full = format!("{full} · {command}");
-            }
-        }
     }
     truncate_middle(&full, DISPLAY_TITLE_CHARS)
 }
@@ -194,9 +191,10 @@ mod tests {
     #[test]
     fn tab_label_shows_running_program() {
         let m = TabModel::new("/home/u/repo");
-        assert_eq!(tab_label(m.active(), Some("/usr/bin/btop")), "repo · btop");
-        assert_eq!(tab_label(m.active(), Some("nvim lib.rs")), "repo · nvim");
+        assert_eq!(tab_label(m.active(), Some("/usr/bin/btop")), "btop");
+        assert_eq!(tab_label(m.active(), Some("nvim lib.rs")), "nvim");
         assert_eq!(tab_label(m.active(), Some("")), "repo");
+        assert_eq!(tab_label(m.active(), None), "repo");
     }
 
     #[test]

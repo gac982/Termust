@@ -1470,25 +1470,51 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let manager = manager.clone();
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(1200), move || {
-            manager.borrow().send_active(b"sleep 6\n");
+            manager.borrow().send_active(b"sleep 3\n");
             let manager = manager.clone();
             let app = app.clone();
-            glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            glib::timeout_add_local_once(Duration::from_millis(1200), move || {
                 let title = manager
                     .borrow()
                     .tab_summaries()
                     .first()
                     .map(|tab| tab.title.clone())
                     .unwrap_or_default();
-                let ok = title.contains("· sleep");
+                let running = title == "sleep";
                 eprintln!(
-                    "termust-tab-title: {title:?} {}",
-                    if ok { "ok" } else { "FAIL" }
+                    "termust-tab-title: running={title:?} {}",
+                    if running { "ok" } else { "FAIL" }
                 );
-                if !ok {
+                if !running {
                     std::process::exit(1);
                 }
-                app.quit();
+                let manager = manager.clone();
+                let app = app.clone();
+                glib::timeout_add_local_once(Duration::from_millis(3500), move || {
+                    let summary = manager.borrow().tab_summaries().first().cloned();
+                    let title = summary
+                        .as_ref()
+                        .map(|tab| tab.title.clone())
+                        .unwrap_or_default();
+                    let dir = summary
+                        .map(|tab| {
+                            tab.cwd
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("")
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    let back = !dir.is_empty() && title == dir;
+                    eprintln!(
+                        "termust-tab-title: idle={title:?} esperado={dir:?} {}",
+                        if back { "ok" } else { "FAIL" }
+                    );
+                    if !back {
+                        std::process::exit(1);
+                    }
+                    app.quit();
+                });
             });
         });
     }
