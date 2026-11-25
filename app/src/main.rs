@@ -618,6 +618,36 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     }
 
     let history_index = Rc::new(RefCell::new(HistoryIndex::new()));
+    // El historial de la sesión se persiste aparte del `.zsh_history`: si el
+    // shell muere sin volcar (cierre de ventana, apagado), no se pierde.
+    let history_store: Option<PathBuf> = if testing || no_restore {
+        // Los tests escriben a un archivo temporal via TERMUST_HISTORY_PATH.
+        std::env::var_os("TERMUST_HISTORY_PATH").map(PathBuf::from)
+    } else {
+        Some(termust_store::history_path())
+    };
+    if let Some(path) = history_store.as_deref() {
+        let mut loaded = termust_store::load_history(path);
+        if loaded.len() > 5_000
+            || std::fs::metadata(path)
+                .map(|m| m.len() > termust_store::MAX_HISTORY_FILE_BYTES)
+                .unwrap_or(false)
+        {
+            let keep = loaded.len().saturating_sub(5_000);
+            let _ = termust_store::rewrite_history(path, &loaded[keep..]);
+            loaded.drain(..keep);
+        }
+        let mut index = history_index.borrow_mut();
+        for record in loaded {
+            index.insert(HistoryEntry::new(
+                record.text,
+                record.cwd,
+                record.timestamp,
+                record.exit_code,
+                HistorySource::Session,
+            ));
+        }
+    }
     let history =
         history::HistoryController::new(history_index.clone(), home.clone(), toast_overlay.clone());
     let preferences = PreferencesController::new(appearance.clone());
@@ -1049,7 +1079,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
             let records = manager.borrow().take_history_records();
             if !records.is_empty() {
                 let mut index = history_index.borrow_mut();
+                let mut persisted = Vec::with_capacity(records.len());
                 for record in records {
+                    persisted.push(termust_store::HistoryRecord {
+                        text: record.text.clone(),
+                        cwd: record.cwd.clone(),
+                        timestamp: record.timestamp,
+                        exit_code: record.exit_code,
+                    });
                     index.insert(HistoryEntry::new(
                         record.text,
                         record.cwd,
@@ -1059,6 +1096,9 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     ));
                 }
                 drop(index);
+                if let Some(path) = history_store.as_deref() {
+                    let _ = termust_store::append_history(path, &persisted);
+                }
                 history.refresh_if_open();
             }
             glib::ControlFlow::Continue

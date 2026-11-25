@@ -149,11 +149,97 @@ pub fn session_path() -> PathBuf {
     if let Some(path) = std::env::var_os("TERMUST_SESSION_PATH") {
         return PathBuf::from(path);
     }
+    state_base().join("termust/session.json")
+}
+
+/// Historial de comandos de sesión. Se guarda aparte de la sesión porque
+/// sobrevive a reinicios aunque el shell no llegue a volcar su `.zsh_history`.
+pub fn history_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("TERMUST_HISTORY_PATH") {
+        return PathBuf::from(path);
+    }
+    state_base().join("termust/history.jsonl")
+}
+
+pub const MAX_HISTORY_FILE_BYTES: u64 = 1024 * 1024;
+
+/// Un comando ejecutado en Termust, tal como se persiste en disco.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryRecord {
+    pub text: String,
+    #[serde(default)]
+    pub cwd: PathBuf,
+    #[serde(default)]
+    pub timestamp: u64,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
+}
+
+/// Lee el historial persistido; ignora líneas corruptas (una escritura a
+/// medias no debe tirar todo el archivo).
+pub fn load_history(path: &Path) -> Vec<HistoryRecord> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<HistoryRecord>(line).ok())
+        .filter(|record| !record.text.trim().is_empty())
+        .collect()
+}
+
+/// Agrega registros al final del archivo (barato: no reescribe el historial).
+pub fn append_history(path: &Path, records: &[HistoryRecord]) -> io::Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
+    for record in records {
+        let line = serde_json::to_string(record).map_err(io::Error::other)?;
+        file.write_all(line.as_bytes())?;
+        file.write_all(b"\n")?;
+    }
+    file.flush()
+}
+
+/// Reescribe el archivo con `records` (compactación atómica).
+pub fn rewrite_history(path: &Path, records: &[HistoryRecord]) -> io::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let tmp = tmp_path(path);
+    {
+        let mut file = File::create(&tmp)?;
+        for record in records {
+            let line = serde_json::to_string(record).map_err(io::Error::other)?;
+            file.write_all(line.as_bytes())?;
+            file.write_all(b"\n")?;
+        }
+        file.flush()?;
+    }
+    fs::rename(&tmp, path)
+}
+
+fn state_base() -> PathBuf {
     std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("termust/session.json")
+}
+
+fn tmp_path(path: &Path) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp");
+    parent.join(format!(".{name}.{}.{stamp}.tmp", std::process::id()))
 }
 
 /// Aplica FR-2.4: los cwd inexistentes caen a `home`. Devuelve true si cambió algo.
@@ -590,5 +676,66 @@ mod tests {
             path.ends_with("termust/session.json")
                 || std::env::var_os("TERMUST_SESSION_PATH").is_some()
         );
+        let history = history_path();
+        assert!(
+            history.ends_with("termust/history.jsonl")
+                || std::env::var_os("TERMUST_HISTORY_PATH").is_some()
+        );
+    }
+
+    fn history_record(text: &str) -> HistoryRecord {
+        HistoryRecord {
+            text: text.to_string(),
+            cwd: PathBuf::from("/tmp/proyecto"),
+            timestamp: 1_700_000_000,
+            exit_code: Some(0),
+        }
+    }
+
+    #[test]
+    fn history_survives_append_and_load() {
+        let dir = std::env::temp_dir().join(format!(
+            "termust-hist-store-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("history.jsonl");
+        assert!(load_history(&path).is_empty());
+        append_history(&path, &[history_record("cargo build")]).unwrap();
+        append_history(&path, &[history_record("btop")]).unwrap();
+        let loaded = load_history(&path);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].text, "cargo build");
+        assert_eq!(loaded[1].text, "btop");
+        assert_eq!(loaded[1].cwd, PathBuf::from("/tmp/proyecto"));
+        assert_eq!(loaded[1].exit_code, Some(0));
+        // compactacion
+        rewrite_history(&path, &loaded[1..]).unwrap();
+        let loaded = load_history(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "btop");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn corrupt_history_lines_are_skipped() {
+        let dir = std::env::temp_dir().join(format!(
+            "termust-hist-corrupt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("history.jsonl");
+        fs::write(&path, "{\"text\":\"ls\"}\nbasura\n{\"text\":\"\"}\n").unwrap();
+        let loaded = load_history(&path);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].text, "ls");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
