@@ -4,6 +4,26 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.4.0] - 2026-11-25
+
+Pestañas con el directorio y el programa en ejecución, historial persistente y
+gráficos de btop/htop correctamente alineados.
+
+### Added
+
+- La pestaña muestra el nombre del directorio en el prompt y el del programa
+  mientras está en ejecución (`btop`, `vim`, `cargo`…). Un nombre manual de
+  pestaña sigue teniendo prioridad y la ruta completa queda en el tooltip.
+- El historial de comandos de la sesión se guarda en
+  `~/.local/state/termust/history.jsonl` y sobrevive a cerrar la app o a
+  reiniciar la máquina, aunque el shell no llegue a volcar su historial.
+
+### Fixed
+
+- Los gráficos braille de btop/htop y el dibujo de cajas ya no se desalinean:
+  los glifos que faltan en la fuente usan un fallback monoespaciado y cada
+  celda se pinta en su columna.
+
 ## [1.3.3] - 2026-11-24
 
 Corrección del render del scrollback al usar la rueda.

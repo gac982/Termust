@@ -34,19 +34,20 @@
   </kudos>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/gac982/Termust/v1.3.3/data/screenshots/terminal.png</image>
+      <image>https://raw.githubusercontent.com/gac982/Termust/v1.4.0/data/screenshots/terminal.png</image>
       <caption>Terminal with the file tree and Markdown viewer</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gac982/Termust/v1.3.3/data/screenshots/preferences.png</image>
+      <image>https://raw.githubusercontent.com/gac982/Termust/v1.4.0/data/screenshots/preferences.png</image>
       <caption>Preferences for theme, transparency and typography</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/gac982/Termust/v1.3.3/data/screenshots/history.png</image>
+      <image>https://raw.githubusercontent.com/gac982/Termust/v1.4.0/data/screenshots/history.png</image>
       <caption>Command history with search</caption>
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.4.0" date="2026-11-25"/>
     <release version="1.3.3" date="2026-11-24"/>
     <release version="1.3.2" date="2026-11-24"/>
     <release version="1.3.1" date="2026-11-24"/>
