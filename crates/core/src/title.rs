@@ -47,6 +47,24 @@ pub fn display_title(tab: &Tab, foreground: Option<&str>) -> TitleSpec {
     }
 }
 
+/// Texto de la pestaña: nombre manual o basename(cwd), nunca la ruta completa
+/// ni el título OSC. Así se ve el directorio actual aunque el shell ponga
+/// `user@host:~/ruta` como título de ventana.
+pub fn tab_label(tab: &Tab) -> String {
+    let mut full = tab
+        .title_override
+        .as_deref()
+        .map(sanitize)
+        .unwrap_or_default();
+    if full.is_empty() {
+        full = sanitize(&basename(&tab.cwd));
+    }
+    if full.is_empty() {
+        full = "Terminal".to_string();
+    }
+    truncate_middle(&full, DISPLAY_TITLE_CHARS)
+}
+
 /// p10k/oh-my-zsh suelen poner `user@host:~/ruta` como título; la ruta sola
 /// es más útil y ocupa menos en la pestaña.
 fn shorten_shell_title(input: &str) -> &str {
@@ -144,6 +162,30 @@ mod tests {
     fn cwd_basename_fallback() {
         let t = tab("/home/u/repo");
         assert_eq!(display_title(&t, None).full, "repo");
+    }
+
+    #[test]
+    fn tab_label_prefers_directory_over_osc() {
+        let mut m = TabModel::new("/home/u/repo");
+        let id = m.active_id();
+        m.set_osc_title(id, "gustavo@host:~/repo");
+        assert_eq!(tab_label(m.active()), "repo");
+    }
+
+    #[test]
+    fn tab_label_override_wins() {
+        let mut m = TabModel::new("/home/u/repo");
+        let id = m.active_id();
+        m.rename(id, Some("manual".into()));
+        assert_eq!(tab_label(m.active()), "manual");
+    }
+
+    #[test]
+    fn tab_label_empty_override_falls_back_to_cwd() {
+        let mut m = TabModel::new("/home/u/repo");
+        let id = m.active_id();
+        m.rename(id, Some("   ".into()));
+        assert_eq!(tab_label(m.active()), "repo");
     }
 
     #[test]

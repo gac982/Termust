@@ -14,7 +14,7 @@ use termust_core::tabs::{
     TabModel,
 };
 use termust_core::terminal::Size;
-use termust_core::title::display_title;
+use termust_core::title::{display_title, tab_label};
 use termust_host_exec::{shell_command, ShellIntegration};
 use termust_pty_unix::UnixPtySpawner;
 use termust_render_cairo::CairoRenderer;
@@ -198,12 +198,12 @@ impl TabManager {
         tab_id: TabId,
         pane_cwds: HashMap<PaneId, PathBuf>,
     ) -> Result<(), String> {
-        let (cwd, title) = {
+        let (cwd, label) = {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
                 .ok_or_else(|| i18n::tr("tab does not exist"))?;
-            (tab.cwd.clone(), tab.title_override.clone())
+            (tab.cwd.clone(), tab_label(tab))
         };
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         container.set_hexpand(true);
@@ -213,7 +213,7 @@ impl TabManager {
         placeholder.set_vexpand(true);
         container.append(&placeholder);
         let page = self.tab_view.append(&container);
-        page.set_title(title.as_deref().unwrap_or("Terminal"));
+        page.set_title(&label);
         page.set_tooltip(&cwd.display().to_string());
         self.entries.push(Entry {
             id: tab_id,
@@ -233,16 +233,12 @@ impl TabManager {
         if self.entries[index].attached {
             return Ok(());
         }
-        let (layout, tab_cwd, title_override) = {
+        let (layout, tab_cwd, label) = {
             let model = self.model.borrow();
             let tab = model
                 .get(tab_id)
                 .ok_or_else(|| i18n::tr("tab does not exist"))?;
-            (
-                tab.layout.clone(),
-                tab.cwd.clone(),
-                tab.title_override.clone(),
-            )
+            (tab.layout.clone(), tab.cwd.clone(), tab_label(tab))
         };
 
         let resolved: Vec<(PaneId, PathBuf)> = layout
@@ -289,7 +285,7 @@ impl TabManager {
         entry.panes = panes;
         entry.attached = true;
         let page = entry.page.clone();
-        page.set_title(title_override.as_deref().unwrap_or("Terminal"));
+        page.set_title(&label);
         page.set_tooltip(&tab_cwd.display().to_string());
 
         schedule_positions(positions);
@@ -1134,14 +1130,14 @@ impl TabManager {
                     }
                 }
             }
-            let spec = {
+            let (spec, label) = {
                 let model = self.model.borrow();
                 let Some(tab) = model.get(update.tab_id) else {
                     continue;
                 };
-                display_title(tab, None)
+                (display_title(tab, None), tab_label(tab))
             };
-            update.page.set_title(&spec.text);
+            update.page.set_title(&label);
             let mut tooltip = spec.tooltip;
             for line in update.panes {
                 tooltip.push('\n');
