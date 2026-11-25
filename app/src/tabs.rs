@@ -203,7 +203,7 @@ impl TabManager {
             let tab = model
                 .get(tab_id)
                 .ok_or_else(|| i18n::tr("tab does not exist"))?;
-            (tab.cwd.clone(), tab_label(tab))
+            (tab.cwd.clone(), tab_label(tab, None))
         };
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         container.set_hexpand(true);
@@ -238,7 +238,7 @@ impl TabManager {
             let tab = model
                 .get(tab_id)
                 .ok_or_else(|| i18n::tr("tab does not exist"))?;
-            (tab.layout.clone(), tab.cwd.clone(), tab_label(tab))
+            (tab.layout.clone(), tab.cwd.clone(), tab_label(tab, None))
         };
 
         let resolved: Vec<(PaneId, PathBuf)> = layout
@@ -1077,6 +1077,7 @@ impl TabManager {
             tab_id: TabId,
             title: Option<String>,
             cwd: Option<PathBuf>,
+            foreground: Option<String>,
             exited: bool,
             panes: Vec<String>,
         }
@@ -1093,6 +1094,7 @@ impl TabManager {
             let view = entry.panes.get(&active);
             let title = view.and_then(|view| view.title());
             let cwd = view.and_then(|view| view.cwd());
+            let foreground = view.and_then(|view| view.foreground_command());
             let exited = entry.panes.values().any(|view| view.exited());
             if let Some(view) = view {
                 let last = view.recent_lines(1).join(" ");
@@ -1115,6 +1117,7 @@ impl TabManager {
                 tab_id: entry.id,
                 title,
                 cwd,
+                foreground,
                 exited,
                 panes: pane_lines,
             });
@@ -1135,7 +1138,10 @@ impl TabManager {
                 let Some(tab) = model.get(update.tab_id) else {
                     continue;
                 };
-                (display_title(tab, None), tab_label(tab))
+                (
+                    display_title(tab, update.foreground.as_deref()),
+                    tab_label(tab, update.foreground.as_deref()),
+                )
             };
             update.page.set_title(&label);
             let mut tooltip = spec.tooltip;

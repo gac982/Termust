@@ -47,10 +47,10 @@ pub fn display_title(tab: &Tab, foreground: Option<&str>) -> TitleSpec {
     }
 }
 
-/// Texto de la pestaña: nombre manual o basename(cwd), nunca la ruta completa
-/// ni el título OSC. Así se ve el directorio actual aunque el shell ponga
-/// `user@host:~/ruta` como título de ventana.
-pub fn tab_label(tab: &Tab) -> String {
+/// Texto de la pestaña: nombre manual, o `directorio · programa` cuando hay un
+/// proceso en foreground (btop, vim, etc.). Nunca la ruta completa ni el
+/// título OSC del shell.
+pub fn tab_label(tab: &Tab, foreground: Option<&str>) -> String {
     let mut full = tab
         .title_override
         .as_deref()
@@ -62,7 +62,26 @@ pub fn tab_label(tab: &Tab) -> String {
     if full.is_empty() {
         full = "Terminal".to_string();
     }
+    if tab.title_override.is_none() {
+        if let Some(command) = foreground.and_then(command_name) {
+            let command = sanitize(command);
+            if !command.is_empty() {
+                full = format!("{full} · {command}");
+            }
+        }
+    }
     truncate_middle(&full, DISPLAY_TITLE_CHARS)
+}
+
+/// `argv` del proceso en foreground → nombre del ejecutable.
+fn command_name(argv: &str) -> Option<&str> {
+    let first = argv.split_whitespace().next()?;
+    let name = first.rsplit('/').next().unwrap_or(first);
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 /// p10k/oh-my-zsh suelen poner `user@host:~/ruta` como título; la ruta sola
@@ -169,7 +188,23 @@ mod tests {
         let mut m = TabModel::new("/home/u/repo");
         let id = m.active_id();
         m.set_osc_title(id, "gustavo@host:~/repo");
-        assert_eq!(tab_label(m.active()), "repo");
+        assert_eq!(tab_label(m.active(), None), "repo");
+    }
+
+    #[test]
+    fn tab_label_shows_running_program() {
+        let m = TabModel::new("/home/u/repo");
+        assert_eq!(tab_label(m.active(), Some("/usr/bin/btop")), "repo · btop");
+        assert_eq!(tab_label(m.active(), Some("nvim lib.rs")), "repo · nvim");
+        assert_eq!(tab_label(m.active(), Some("")), "repo");
+    }
+
+    #[test]
+    fn tab_label_override_wins_over_program() {
+        let mut m = TabModel::new("/home/u/repo");
+        let id = m.active_id();
+        m.rename(id, Some("manual".into()));
+        assert_eq!(tab_label(m.active(), Some("btop")), "manual");
     }
 
     #[test]
@@ -177,7 +212,7 @@ mod tests {
         let mut m = TabModel::new("/home/u/repo");
         let id = m.active_id();
         m.rename(id, Some("manual".into()));
-        assert_eq!(tab_label(m.active()), "manual");
+        assert_eq!(tab_label(m.active(), None), "manual");
     }
 
     #[test]
@@ -185,7 +220,7 @@ mod tests {
         let mut m = TabModel::new("/home/u/repo");
         let id = m.active_id();
         m.rename(id, Some("   ".into()));
-        assert_eq!(tab_label(m.active()), "repo");
+        assert_eq!(tab_label(m.active(), None), "repo");
     }
 
     #[test]
