@@ -4,6 +4,26 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.6.0] - 2026-11-27
+
+Menú contextual con el mouse y Shift+Enter dentro de apps de pantalla completa.
+
+### Added
+
+- Click derecho en el terminal abre un menú con Copiar y Pegar. Copiar se
+  habilita solo con selección y Pegar respeta bracketed paste.
+- El botón derecho queda reservado para Termust aunque la TUI pida reporte de
+  mouse (btop, OpenCode, vim): esas apps siguen recibiendo click izquierdo,
+  arrastre y rueda.
+- Click medio pega la selección primaria.
+
+### Fixed
+
+- `Shift+Enter` ahora también inserta un salto de línea dentro de TUIs que
+  usan bracketed paste (OpenCode, Claude Code), no solo en el prompt.
+- El gesto de mouse escuchaba solo el botón primario, por eso el click derecho
+  y el del medio no llegaban al terminal.
+
 ## [1.5.0] - 2026-11-27
 
 Atajos de teclado editables, salto de línea con Shift+Enter y copiar/pegar
