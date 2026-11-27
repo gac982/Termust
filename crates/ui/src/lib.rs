@@ -52,6 +52,7 @@ pub struct TerminalView {
     exited: Rc<Cell<bool>>,
     exit_code: Rc<Cell<Option<i32>>>,
     last_output: Rc<Cell<Option<std::time::Instant>>>,
+    context_menu_labels: Rc<RefCell<Option<(String, String)>>>,
 }
 
 impl TerminalView {
@@ -88,6 +89,7 @@ impl TerminalView {
         let resize_count = Rc::new(Cell::new(0));
         let exit_code = Rc::new(Cell::new(None));
         let last_output = Rc::new(Cell::new(None));
+        let context_menu_labels = Rc::new(RefCell::new(None));
         let last_modes = Rc::new(Cell::new(Modes::default()));
         let exited = Rc::new(Cell::new(false));
         let last_size = Rc::new(Cell::new(GridSize::default()));
@@ -275,6 +277,7 @@ impl TerminalView {
             let last_size = last_size.clone();
             let pointer = pointer.clone();
             let area_input = area.clone();
+            let menu_labels = context_menu_labels.clone();
             let anchor: Rc<Cell<Option<(usize, usize)>>> = Rc::new(Cell::new(None));
             let press_px = Rc::new(Cell::new((0.0f64, 0.0f64)));
             let pressed_button: Rc<Cell<Option<MouseButton>>> = Rc::new(Cell::new(None));
@@ -307,6 +310,21 @@ impl TerminalView {
                     let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                     let m_modes = modes.get();
                     let button = gesture.current_button();
+                    if button == 3 {
+                        // El click derecho queda para Termust aunque la TUI
+                        // pida reporte de mouse: la app no ve el botón 3.
+                        terminal_context_menu(
+                            &area_input,
+                            &engine,
+                            &selection,
+                            &session,
+                            &modes,
+                            &menu_labels,
+                            x,
+                            y,
+                        );
+                        return;
+                    }
                     if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
                         eprintln!(
                             "termust-mouse: press button={button} row={row} col={col} x={x:.1} y={y:.1} cw={:.2} ch={:.2} grid={:?} snap={:?} modes={m_modes:?} shift={shift}",
@@ -529,6 +547,7 @@ impl TerminalView {
             exited,
             exit_code,
             last_output,
+            context_menu_labels,
         }
     }
 
@@ -720,6 +739,27 @@ impl TerminalView {
             PromptState::CommandRunning
         );
         running || self.session.borrow().has_foreground_job()
+    }
+
+    /// Abre el menú contextual en coordenadas del widget (equivale al click
+    /// derecho). Expuesto para automatización y pruebas.
+    pub fn open_context_menu_at(&self, x: f64, y: f64) -> gtk::Popover {
+        let modes = Rc::new(Cell::new(self.modes()));
+        terminal_context_menu(
+            &self.area,
+            &self.engine,
+            &self.selection,
+            &self.session,
+            &modes,
+            &self.context_menu_labels,
+            x,
+            y,
+        )
+    }
+
+    /// Textos del menú contextual (los traduce la app).
+    pub fn set_context_menu_labels(&self, copy: String, paste: String) {
+        *self.context_menu_labels.borrow_mut() = Some((copy, paste));
     }
 
     /// Texto de la selección actual, si hay una.
@@ -959,6 +999,122 @@ pub fn encode_key(key: gdk::Key, mods: gdk::ModifierType, modes: Modes) -> Optio
         }
     }
     None
+}
+
+/// Abre el menú contextual en coordenadas del widget (tests y click derecho).
+#[allow(clippy::too_many_arguments)]
+fn terminal_context_menu(
+    area: &gtk::DrawingArea,
+    engine: &Rc<RefCell<Box<dyn TerminalEngine>>>,
+    selection: &Rc<Cell<Option<Selection>>>,
+    session: &Rc<RefCell<Box<dyn PtySession>>>,
+    modes: &Rc<Cell<Modes>>,
+    labels: &Rc<RefCell<Option<(String, String)>>>,
+    x: f64,
+    y: f64,
+) -> gtk::Popover {
+    let can_copy = {
+        let snapshot = engine.borrow_mut().snapshot();
+        copy_selection(&snapshot, selection.get()).is_some()
+    };
+    let (copy_label, paste_label) = labels
+        .borrow()
+        .clone()
+        .unwrap_or_else(|| ("Copy".to_string(), "Paste".to_string()));
+    let engine_copy = engine.clone();
+    let selection_copy = selection.clone();
+    let area_copy = area.clone();
+    let session_paste = session.clone();
+    let modes_paste = modes.clone();
+    let area_paste = area.clone();
+    show_terminal_menu(
+        area,
+        x,
+        y,
+        can_copy,
+        &copy_label,
+        &paste_label,
+        move || {
+            let snapshot = engine_copy.borrow_mut().snapshot();
+            if let Some(text) = copy_selection(&snapshot, selection_copy.get()) {
+                area_copy.clipboard().set_text(&text);
+            }
+        },
+        move || {
+            paste_from(
+                area_paste.clipboard(),
+                session_paste.clone(),
+                modes_paste.get().bracketed_paste,
+            );
+        },
+    )
+}
+
+/// Menú contextual del terminal: solo Copiar y Pegar. El click derecho está
+/// reservado para Termust, así que no se reenvía a la TUI.
+#[allow(clippy::too_many_arguments)]
+fn show_terminal_menu(
+    area: &gtk::DrawingArea,
+    x: f64,
+    y: f64,
+    can_copy: bool,
+    copy_label: &str,
+    paste_label: &str,
+    on_copy: impl Fn() + 'static,
+    on_paste: impl Fn() + 'static,
+) -> gtk::Popover {
+    let popover = gtk::Popover::new();
+    popover.set_has_arrow(false);
+    popover.set_autohide(true);
+
+    let menu = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    menu.add_css_class("menu");
+    menu.set_margin_top(6);
+    menu.set_margin_bottom(6);
+    menu.set_margin_start(6);
+    menu.set_margin_end(6);
+
+    let copy = menu_item("edit-copy-symbolic", copy_label, can_copy);
+    let paste = menu_item("edit-paste-symbolic", paste_label, true);
+    menu.append(&copy);
+    menu.append(&paste);
+    popover.set_child(Some(&menu));
+    popover.set_parent(area);
+    popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+
+    {
+        let popover = popover.clone();
+        copy.connect_clicked(move |_| {
+            on_copy();
+            popover.popdown();
+        });
+    }
+    {
+        let popover = popover.clone();
+        paste.connect_clicked(move |_| {
+            on_paste();
+            popover.popdown();
+        });
+    }
+    popover.connect_closed(|popover| popover.unparent());
+    popover.popup();
+    popover
+}
+
+fn menu_item(icon: &str, label: &str, sensitive: bool) -> gtk::Button {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let image = gtk::Image::from_icon_name(icon);
+    let text = gtk::Label::new(Some(label));
+    text.set_xalign(0.0);
+    text.set_hexpand(true);
+    row.append(&image);
+    row.append(&text);
+
+    let button = gtk::Button::new();
+    button.set_child(Some(&row));
+    button.add_css_class("flat");
+    button.set_sensitive(sensitive);
+    button
 }
 
 /// Salto de línea sin ejecutar: solo es seguro con bracketed paste, donde el

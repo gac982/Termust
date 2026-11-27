@@ -2602,7 +2602,27 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                             );
                             eprintln!("termust-screenshot: shortcuts={ok}");
                             dialog.close();
-                            app5.quit();
+                            let popover = manager3
+                                .borrow()
+                                .active_view()
+                                .map(|view| view.open_context_menu_at(120.0, 140.0));
+                            let app6 = app5.clone();
+                            glib::timeout_add_local_once(Duration::from_millis(500), move || {
+                                let menu_ok = popover
+                                    .as_ref()
+                                    .map(|popover| {
+                                        screenshot::save_widget_png(
+                                            popover,
+                                            "data/screenshots/context-menu.png",
+                                        )
+                                    })
+                                    .unwrap_or(false);
+                                eprintln!("termust-screenshot: menu={menu_ok}");
+                                if let Some(popover) = popover.as_ref() {
+                                    popover.popdown();
+                                }
+                                app6.quit();
+                            });
                         });
                     });
                 });

@@ -333,6 +333,7 @@ impl TabManager {
             .borrow()
             .get(tab_id)
             .and_then(|tab| tab.theme_id.clone());
+        view.set_context_menu_labels(i18n::tr("Copy"), i18n::tr("Paste"));
         self.appearance.apply_to_view(&view, tab_theme.as_deref());
         Ok(view)
     }

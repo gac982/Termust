@@ -838,3 +838,9 @@ msgstr "Ese atajo ya lo usa «{action}»"
 
 msgid "Use Ctrl, Alt or a function key"
 msgstr "Usa Ctrl, Alt o una tecla de función"
+
+msgid "Copy"
+msgstr "Copiar"
+
+msgid "Paste"
+msgstr "Pegar"
