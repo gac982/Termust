@@ -270,6 +270,7 @@ impl TerminalView {
 
         {
             let engine = engine.clone();
+            let engine_released = engine.clone();
             let session = session.clone();
             let modes = last_modes.clone();
             let selection = selection.clone();
@@ -312,17 +313,8 @@ impl TerminalView {
                     let button = gesture.current_button();
                     if button == 3 {
                         // El click derecho queda para Termust aunque la TUI
-                        // pida reporte de mouse: la app no ve el botón 3.
-                        terminal_context_menu(
-                            &area_input,
-                            &engine,
-                            &selection,
-                            &session,
-                            &modes,
-                            &menu_labels,
-                            x,
-                            y,
-                        );
+                        // pida reporte de mouse. El menú se abre al soltar:
+                        // abrirlo al presionar hace que el release lo cierre.
                         return;
                     }
                     if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
@@ -373,15 +365,35 @@ impl TerminalView {
             }
 
             {
+                let engine = engine_released;
                 let session = session.clone();
+                let selection = selection.clone();
                 let modes = modes.clone();
                 let metrics = metrics.clone();
                 let last_size = last_size.clone();
                 let pointer = pointer.clone();
                 let pressed_button = pressed_button.clone();
                 let anchor = anchor.clone();
+                let area_menu = area_input.clone();
+                let menu_labels = menu_labels.clone();
                 click.connect_released(move |gesture, _n_press, x, y| {
                     pointer.set((x, y));
+                    if gesture.current_button() == 3 {
+                        if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
+                            eprintln!("termust-mouse: menu contextual x={x:.1} y={y:.1}");
+                        }
+                        terminal_context_menu(
+                            &area_menu,
+                            &engine,
+                            &selection,
+                            &session,
+                            &modes,
+                            &menu_labels,
+                            x,
+                            y,
+                        );
+                        return;
+                    }
                     let m = metrics.get();
                     let grid = last_size.get();
                     if let Some(b) = pressed_button.get() {
