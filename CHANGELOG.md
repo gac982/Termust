@@ -4,6 +4,26 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)
 y el versionado es [SemVer](https://semver.org/lang/es/).
 
+## [1.5.0] - 2026-11-27
+
+Atajos de teclado editables, salto de línea con Shift+Enter y copiar/pegar
+dentro del mismo mapa de atajos.
+
+### Added
+
+- Panel de atajos editable (menú → Keyboard shortcuts o `Ctrl+Shift+?`): clic
+  en una fila y se presiona la combinación nueva. Los conflictos se rechazan
+  con un aviso que nombra la acción que ya la usa.
+- Restablecer por atajo y «Reset all» a los valores de fábrica; los cambios se
+  guardan en GSettings y sobreviven reinicios y actualizaciones.
+- `Shift+Enter` inserta un salto de línea sin ejecutar (bracketed paste). En
+  TUIs de pantalla completa sigue siendo un Enter normal.
+- Copiar y pegar (`Ctrl+Shift+C`/`Ctrl+Shift+V`) pasan por el mapa editable.
+
+### Changed
+
+- `Ctrl+1…9` para cambiar de pestaña quedan fijos y no se editan.
+
 ## [1.4.0] - 2026-11-25
 
 Pestañas con el directorio y el programa en ejecución, historial persistente y
