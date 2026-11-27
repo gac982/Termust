@@ -286,6 +286,9 @@ impl TerminalView {
             let engine_log = engine.clone();
 
             let click = gtk::GestureClick::new();
+            // GtkGestureClick escucha solo el botón primario por defecto;
+            // con 0 llegan también el derecho (menú) y el medio (pegar).
+            click.set_button(0);
             {
                 let session = session.clone();
                 let modes = modes.clone();
@@ -311,12 +314,6 @@ impl TerminalView {
                     let (row, col) = clamp_cell(cell_at(x, y, m), grid.rows, grid.cols);
                     let m_modes = modes.get();
                     let button = gesture.current_button();
-                    if button == 3 {
-                        // El click derecho queda para Termust aunque la TUI
-                        // pida reporte de mouse. El menú se abre al soltar:
-                        // abrirlo al presionar hace que el release lo cierre.
-                        return;
-                    }
                     if std::env::var_os("TERMUST_MOUSE_LOG").is_some() {
                         eprintln!(
                             "termust-mouse: press button={button} row={row} col={col} x={x:.1} y={y:.1} cw={:.2} ch={:.2} grid={:?} snap={:?} modes={m_modes:?} shift={shift}",
@@ -325,6 +322,12 @@ impl TerminalView {
                             grid,
                             engine.borrow_mut().snapshot().size
                         );
+                    }
+                    if button == 3 {
+                        // El click derecho queda para Termust aunque la TUI
+                        // pida reporte de mouse. El menú se abre al soltar:
+                        // abrirlo al presionar hace que el release lo cierre.
+                        return;
                     }
                     if m_modes.reports_mouse() && !shift {
                         selection.set(None);
