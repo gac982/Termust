@@ -220,11 +220,11 @@ fn rebuild_fn(list: &gtk::ListBox, map: Rc<RefCell<KeyMap>>, window: gtk::Window
                 let edit = gtk::Button::from_icon_name("document-edit-symbolic");
                 edit.add_css_class("flat");
                 edit.set_tooltip_text(Some(&i18n::tr("Change shortcut")));
-                {
+                let open: Rc<dyn Fn()> = {
                     let map_edit = map.clone();
                     let window = window.clone();
                     let weak = weak_for_closure.clone();
-                    edit.connect_clicked(move |_| {
+                    Rc::new(move || {
                         let weak = weak.clone();
                         prompt_chord(
                             &window,
@@ -238,7 +238,15 @@ fn rebuild_fn(list: &gtk::ListBox, map: Rc<RefCell<KeyMap>>, window: gtk::Window
                                 }
                             }),
                         );
-                    });
+                    })
+                };
+                {
+                    let open = open.clone();
+                    edit.connect_clicked(move |_| open());
+                }
+                {
+                    let open = open.clone();
+                    row.connect_activated(move |_| open());
                 }
                 suffix.append(&edit);
                 row.add_suffix(&suffix);
