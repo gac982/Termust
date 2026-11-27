@@ -949,13 +949,14 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                 return glib::Propagation::Stop;
             }
             if action == Action::InsertNewline {
+                // También dentro de una TUI (OpenCode, Claude Code, vim):
+                // solo inserta el salto si el programa pidió bracketed paste;
+                // si no, se deja pasar como Enter normal.
                 let inserted = manager
                     .borrow()
                     .active_view()
-                    .map(|view| !view.modes().alt_screen && view.insert_newline())
+                    .map(|view| view.insert_newline())
                     .unwrap_or(false);
-                // Sin bracketed paste o dentro de una TUI, Shift+Enter sigue
-                // siendo un Enter normal.
                 return if inserted {
                     glib::Propagation::Stop
                 } else {
