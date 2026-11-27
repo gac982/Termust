@@ -811,3 +811,30 @@ msgstr "El remoto rechazó el push."
 
 msgid "Username and token are required"
 msgstr "Usuario y token son obligatorios"
+
+msgid "Change shortcut"
+msgstr "Cambiar atajo"
+
+msgid "Click a shortcut and press the new combination"
+msgstr "Haz clic en un atajo y presiona la combinación nueva"
+
+msgid "Escape can't be used as a shortcut"
+msgstr "Escape no se puede usar como atajo"
+
+msgid "New shortcut"
+msgstr "Nuevo atajo"
+
+msgid "Press the new combination"
+msgstr "Presiona la combinación nueva"
+
+msgid "Reset all"
+msgstr "Restablecer todo"
+
+msgid "Restore default"
+msgstr "Restablecer predeterminado"
+
+msgid "That shortcut is already used by \"{action}\""
+msgstr "Ese atajo ya lo usa «{action}»"
+
+msgid "Use Ctrl, Alt or a function key"
+msgstr "Usa Ctrl, Alt o una tecla de función"

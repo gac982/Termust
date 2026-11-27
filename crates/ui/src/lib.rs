@@ -184,31 +184,12 @@ impl TerminalView {
         }
 
         {
-            let engine = engine.clone();
             let session = session.clone();
-            let selection = selection.clone();
             let modes = last_modes.clone();
-            let area_key = area.clone();
             let key = gtk::EventControllerKey::new();
             key.connect_key_pressed(move |_, keyval, _code, state| {
-                let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-                let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
-                let ch = keyval.to_unicode();
-                let copy =
-                    ctrl && shift && ch.map(|c| c.eq_ignore_ascii_case(&'c')).unwrap_or(false);
-                let paste =
-                    ctrl && shift && ch.map(|c| c.eq_ignore_ascii_case(&'v')).unwrap_or(false);
-                if copy {
-                    let snapshot = engine.borrow_mut().snapshot();
-                    if let Some(text) = copy_selection(&snapshot, selection.get()) {
-                        area_key.clipboard().set_text(&text);
-                    }
-                    return glib::Propagation::Stop;
-                }
-                if paste {
-                    paste_clipboard(&area_key, session.clone(), modes.clone());
-                    return glib::Propagation::Stop;
-                }
+                // Copiar/pegar/salto de línea los resuelve el mapa de atajos
+                // editable en la ventana; acá solo se codifican teclas.
                 if let Some(bytes) = encode_key(keyval, state, modes.get()) {
                     let _ = session.borrow_mut().write(&bytes);
                     glib::Propagation::Stop
@@ -365,7 +346,7 @@ impl TerminalView {
                             paste_from(
                                 area_input.primary_clipboard(),
                                 session.clone(),
-                                modes.clone(),
+                                modes.get().bracketed_paste,
                             );
                         }
                         _ => {}
@@ -741,6 +722,38 @@ impl TerminalView {
         running || self.session.borrow().has_foreground_job()
     }
 
+    /// Texto de la selección actual, si hay una.
+    pub fn copy_selection_text(&self) -> Option<String> {
+        let snapshot = self.engine.borrow_mut().snapshot();
+        copy_selection(&snapshot, self.selection.get())
+    }
+
+    /// Copia la selección al portapapeles.
+    pub fn copy_selection(&self) -> bool {
+        let Some(text) = self.copy_selection_text() else {
+            return false;
+        };
+        self.area.clipboard().set_text(&text);
+        true
+    }
+
+    /// Pega el portapapeles como entrada del terminal.
+    pub fn paste(&self) {
+        let bracketed = self.bracketed_paste();
+        paste_from(self.area.clipboard(), self.session.clone(), bracketed);
+    }
+
+    /// Inserta un salto de línea sin ejecutar (Shift+Enter). Devuelve `false`
+    /// si el shell no soporta bracketed paste: en ese caso hay que dejar pasar
+    /// la tecla como un Enter normal.
+    pub fn insert_newline(&self) -> bool {
+        let Some(bytes) = newline_bytes(self.bracketed_paste()) else {
+            return false;
+        };
+        let _ = self.session.borrow_mut().write(bytes);
+        true
+    }
+
     /// Entrada sintética para tests/automatización (no es un atajo de usuario).
     pub fn write_input(&self, bytes: &[u8]) {
         let _ = self.session.borrow_mut().write(bytes);
@@ -856,20 +869,11 @@ fn copy_selection(snapshot: &Snapshot, selection: Option<Selection>) -> Option<S
     }
 }
 
-fn paste_clipboard(
-    area: &gtk::DrawingArea,
-    session: Rc<RefCell<Box<dyn PtySession>>>,
-    modes: Rc<Cell<Modes>>,
-) {
-    paste_from(area.clipboard(), session, modes);
-}
-
 fn paste_from(
     clipboard: gdk::Clipboard,
     session: Rc<RefCell<Box<dyn PtySession>>>,
-    modes: Rc<Cell<Modes>>,
+    bracketed: bool,
 ) {
-    let bracketed = modes.get().bracketed_paste;
     clipboard.read_text_async(None::<&gio::Cancellable>, move |res| {
         if let Ok(Some(text)) = res {
             let mut bytes = Vec::with_capacity(text.len() + 12);
@@ -955,6 +959,16 @@ pub fn encode_key(key: gdk::Key, mods: gdk::ModifierType, modes: Modes) -> Optio
         }
     }
     None
+}
+
+/// Salto de línea sin ejecutar: solo es seguro con bracketed paste, donde el
+/// shell lo inserta en el buffer en vez de aceptar la línea.
+pub fn newline_bytes(bracketed: bool) -> Option<&'static [u8]> {
+    if bracketed {
+        Some(b"\x1b[200~\n\x1b[201~")
+    } else {
+        None
+    }
 }
 
 fn arrow(final_byte: u8, app_cursor: bool) -> Vec<u8> {
@@ -1081,6 +1095,15 @@ mod wheel_tests {
             wheel_target(mouse_modes(), PromptState::AtPrompt, false),
             WheelTarget::Scrollback
         );
+    }
+
+    #[test]
+    fn newline_uses_bracketed_paste() {
+        assert_eq!(
+            newline_bytes(true),
+            Some(b"\x1b[200~\n\x1b[201~".as_slice())
+        );
+        assert_eq!(newline_bytes(false), None);
     }
 
     #[test]

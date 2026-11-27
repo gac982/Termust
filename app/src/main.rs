@@ -12,6 +12,7 @@ mod markdown;
 mod preferences;
 mod remotes;
 mod screenshot;
+mod shortcuts;
 mod tab_sidebar;
 mod tabs;
 mod viewer;
@@ -34,9 +35,7 @@ use tab_sidebar::TabSidebar;
 use tabs::TabManager;
 use termust_agents::{AgentCatalog, AgentState, AgentStatus};
 use termust_core::history::{HistoryEntry, HistoryIndex, HistorySource};
-use termust_core::keymap::{
-    resolve_shortcut, Action, Focus, Key as CoreKey, KeyConfig, KeyEvent, Mods,
-};
+use termust_core::keymap::{Action, Focus, Key as CoreKey, KeyEvent, Mods};
 use termust_core::tabs::{Direction, Preset, SplitOrientation};
 use termust_pty_unix::UnixPtySpawner;
 use viewer::{Viewer, ViewerColors};
@@ -181,6 +180,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         .build();
 
     let appearance = Appearance::load(&home, termust_ui::system_monospace_font());
+    let keymap = Rc::new(RefCell::new(shortcuts::load()));
     let spawner = match UnixPtySpawner::new() {
         Ok(s) => Rc::new(s),
         Err(e) => {
@@ -677,7 +677,10 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let shortcuts_action = gtk::gio::SimpleAction::new("shortcuts", None);
         {
             let window = window.clone();
-            shortcuts_action.connect_activate(move |_, _| show_shortcuts(&window));
+            let keymap = keymap.clone();
+            shortcuts_action.connect_activate(move |_, _| {
+                shortcuts::present(window.upcast_ref(), keymap.clone());
+            });
         }
         group.add_action(&shortcuts_action);
         let about_action = gtk::gio::SimpleAction::new("about", None);
@@ -846,6 +849,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
     manager.borrow().focus_active();
 
     {
+        let keymap = keymap.clone();
         let manager = manager.clone();
         let home = home.clone();
         let toast_overlay = toast_overlay.clone();
@@ -925,16 +929,46 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     return glib::Propagation::Stop;
                 }
             }
-            let Some(action) = resolve_shortcut(
-                KeyEvent::new(key, mods),
-                Focus::Terminal,
-                &KeyConfig::default(),
-            ) else {
+            let Some(action) = keymap
+                .borrow()
+                .resolve(KeyEvent::new(key, mods), Focus::Terminal)
+            else {
                 return glib::Propagation::Proceed;
             };
 
+            if action == Action::Copy {
+                if let Some(view) = manager.borrow().active_view() {
+                    view.copy_selection();
+                }
+                return glib::Propagation::Stop;
+            }
+            if action == Action::Paste {
+                if let Some(view) = manager.borrow().active_view() {
+                    view.paste();
+                }
+                return glib::Propagation::Stop;
+            }
+            if action == Action::InsertNewline {
+                let inserted = manager
+                    .borrow()
+                    .active_view()
+                    .map(|view| !view.modes().alt_screen && view.insert_newline())
+                    .unwrap_or(false);
+                // Sin bracketed paste o dentro de una TUI, Shift+Enter sigue
+                // siendo un Enter normal.
+                return if inserted {
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                };
+            }
+
             if action == Action::Preferences {
                 preferences.present(&key_window);
+                return glib::Propagation::Stop;
+            }
+            if action == Action::Shortcuts {
+                shortcuts::present(key_window.upcast_ref(), keymap.clone());
                 return glib::Propagation::Stop;
             }
             if action == Action::ToggleFiles {
@@ -1461,6 +1495,50 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         std::process::exit(1);
                     }
                     app3.quit();
+                });
+            });
+        });
+    }
+
+    if std::env::var_os("TERMUST_NEWLINE_TEST").is_some() {
+        let manager = manager.clone();
+        let app = app.clone();
+        let marker = std::env::temp_dir().join(format!("termust-newline-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let marker2 = marker.clone();
+        glib::timeout_add_local_once(Duration::from_millis(1500), move || {
+            let inserted = {
+                let manager = manager.borrow();
+                match manager.active_view() {
+                    Some(view) => {
+                        view.write_input(format!("touch '{}'", marker2.display()).as_bytes());
+                        view.insert_newline()
+                    }
+                    None => false,
+                }
+            };
+            let manager = manager.clone();
+            let app = app.clone();
+            let marker = marker2.clone();
+            glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                // Antes de Enter el comando no debe haberse ejecutado.
+                let ran_early = marker.exists();
+                if let Some(view) = manager.borrow().active_view() {
+                    view.write_input(b"\r");
+                }
+                let app = app.clone();
+                glib::timeout_add_local_once(Duration::from_millis(700), move || {
+                    let ran = marker.exists();
+                    let ok = inserted && !ran_early && ran;
+                    eprintln!(
+                        "termust-newline: bracketed={inserted} temprano={ran_early} ejecutado={ran} {}",
+                        if ok { "ok" } else { "FAIL" }
+                    );
+                    let _ = std::fs::remove_file(&marker);
+                    if !ok {
+                        std::process::exit(1);
+                    }
+                    app.quit();
                 });
             });
         });
@@ -2430,6 +2508,7 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
         let preferences = preferences.clone();
         let history = history.clone();
         let agent_bar = agent_bar.clone();
+        let keymap = keymap.clone();
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(1200), move || {
             let _ = std::fs::create_dir_all("data/screenshots");
@@ -2503,6 +2582,8 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                     ]);
                     history3.open(&anchor, Rc::new(|_| {}));
                     let history4 = history3.clone();
+                    let window4 = window2.clone();
+                    let keymap4 = keymap.clone();
                     let app4 = app3.clone();
                     glib::timeout_add_local_once(Duration::from_millis(700), move || {
                         let history_ok = screenshot::save_widget_png(
@@ -2511,7 +2592,17 @@ fn build_ui(app: &Application, no_restore: bool) -> ApplicationWindow {
                         );
                         eprintln!("termust-screenshot: history={history_ok}");
                         history4.close();
-                        app4.quit();
+                        let dialog = shortcuts::present(window4.upcast_ref(), keymap4);
+                        let app5 = app4.clone();
+                        glib::timeout_add_local_once(Duration::from_millis(600), move || {
+                            let ok = screenshot::save_widget_png(
+                                &dialog,
+                                "data/screenshots/shortcuts.png",
+                            );
+                            eprintln!("termust-screenshot: shortcuts={ok}");
+                            dialog.close();
+                            app5.quit();
+                        });
                     });
                 });
             });
@@ -3279,7 +3370,7 @@ fn main() {}
         let tab_overview = tab_overview.clone();
         let app = app.clone();
         glib::timeout_add_local_once(Duration::from_millis(700), move || {
-            show_shortcuts(&window);
+            shortcuts::present(window.upcast_ref(), keymap.clone());
             let window2 = window.clone();
             let overview_button2 = overview_button.clone();
             let tab_overview2 = tab_overview.clone();
@@ -3657,7 +3748,7 @@ fn install_css() {
     }
 }
 
-fn map_key(key: gdk::Key) -> Option<CoreKey> {
+pub(crate) fn map_key(key: gdk::Key) -> Option<CoreKey> {
     let mapped = match key {
         gdk::Key::Return => CoreKey::Enter,
         gdk::Key::Tab => CoreKey::Tab,
@@ -3854,55 +3945,6 @@ fn process_cpu_ticks() -> u64 {
     let utime: u64 = fields[11].parse().unwrap_or(0);
     let stime: u64 = fields[12].parse().unwrap_or(0);
     utime + stime
-}
-
-fn show_shortcuts(window: &ApplicationWindow) {
-    let dialog = libadwaita::ShortcutsDialog::new();
-    dialog.set_title(&i18n::tr("Keyboard shortcuts"));
-    let tabs = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Tabs")));
-    for (title, accel) in [
-        ("New tab", "<Control><Shift>t"),
-        ("Close tab", "<Control><Shift>w"),
-        ("Next tab", "<Control>Page_Down"),
-        ("Previous tab", "<Control>Page_Up"),
-        ("Move tab left", "<Control><Shift>Page_Up"),
-        ("Move tab right", "<Control><Shift>Page_Down"),
-    ] {
-        tabs.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
-    }
-    dialog.add(tabs);
-    let panes = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Panes")));
-    for (title, accel) in [
-        ("Split pane right", "<Control><Shift>d"),
-        ("Split pane down", "<Control><Shift>e"),
-        ("Focus pane left", "<Control><Shift>Left"),
-        ("Focus pane right", "<Control><Shift>Right"),
-        ("Focus pane up", "<Control><Shift>Up"),
-        ("Focus pane down", "<Control><Shift>Down"),
-        ("Resize left", "<Control><Alt><Shift>Left"),
-        ("Resize right", "<Control><Alt><Shift>Right"),
-        ("Resize up", "<Control><Alt><Shift>Up"),
-        ("Resize down", "<Control><Alt><Shift>Down"),
-    ] {
-        panes.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
-    }
-    dialog.add(panes);
-    let app = libadwaita::ShortcutsSection::new(Some(&i18n::tr("Application")));
-    for (title, accel) in [
-        ("Zoom in", "<Control>plus"),
-        ("Zoom out", "<Control>minus"),
-        ("Reset zoom", "<Control>0"),
-        ("Fullscreen", "F11"),
-        ("File panel", "F9"),
-        ("Vertical tabs", "<Control><Shift>l"),
-        ("Git", "<Control><Shift>g"),
-        ("Preferences", "<Control>comma"),
-        ("Atajos de teclado", "<Control><Shift>question"),
-    ] {
-        app.add(libadwaita::ShortcutsItem::new(&i18n::tr(title), accel));
-    }
-    dialog.add(app);
-    dialog.present(Some(window));
 }
 
 fn show_about(window: &ApplicationWindow) {

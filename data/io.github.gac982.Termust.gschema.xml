@@ -64,6 +64,11 @@
       <summary>Escala de fuente</summary>
       <description>Multiplicador del tamaño de fuente del terminal (zoom).</description>
     </key>
+    <key name="shortcuts" type="a{ss}">
+      <default>@a{ss} {}</default>
+      <summary>Atajos de teclado personalizados</summary>
+      <description>Mapa acción → combinación (por ejemplo copy=ctrl+shift+c).</description>
+    </key>
     <key name="language" type="s">
       <default>'system'</default>
       <summary>Idioma de la interfaz</summary>
